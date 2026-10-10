@@ -56,6 +56,8 @@ button:focus-visible,.ask input:focus-visible{outline:2px solid var(--ink);outli
 .link:hover{color:var(--ink)}
 #snd{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));right:12px;opacity:0;transition:opacity 1s;pointer-events:none}
 #snd.on{opacity:.7;pointer-events:auto}
+#hud{position:fixed;top:calc(15px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);font:600 12px var(--f-ui);letter-spacing:.1em;text-transform:uppercase;color:#d9f27a;opacity:0;transition:opacity .8s;pointer-events:none;text-shadow:0 0 10px rgba(200,255,120,.5),0 1px 4px #000;white-space:nowrap;font-variant-numeric:tabular-nums}
+#hud.on{opacity:.9}
 #ridgeHint{position:fixed;top:calc(46px + env(safe-area-inset-top,0px));left:16px;right:16px;text-align:center;font:400 12px var(--f-ui);letter-spacing:.08em;text-transform:uppercase;color:var(--dim);opacity:0;transition:opacity 1.2s;pointer-events:none;text-shadow:0 1px 6px #000}
 #ridgeHint.on{opacity:.8}
 #share{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));left:12px;opacity:.7}
@@ -67,6 +69,7 @@ button:focus-visible,.ask input:focus-visible{outline:2px solid var(--ink);outli
 
 <canvas id="c" aria-label="Ember: a small clearing at the edge of a forest. Tap to light the ember."></canvas>
 <div id="ridgeHint"></div>
+<div id="hud" aria-live="polite"></div>
 <div id="talk" aria-live="polite"><span class="who" id="who">Maren</span><div id="talkText"></div></div>
 <div class="ask" id="whoAsk"></div>
 <form class="ask" id="nameAsk" autocomplete="off">
@@ -135,7 +138,7 @@ function merge(id, data){
   if (!id || !data || typeof data !== 'object') return false;
   const w = world(), cur = w.players[id];
   if (cur && (cur.updatedAt||0) >= (data.updatedAt||0)) return false;
-  w.players[id] = {name:String(data.name||'').slice(0,20), seed:data.seed==='apple'?'apple':'lantern', plantedAt:+data.plantedAt||Date.now(), lastSeen:+data.lastSeen||0, note:String(data.note||'').slice(0,80), visits:Array.isArray(data.visits)?data.visits.slice(-20).map(v=>({to:String(v.to||''), at:+v.at||0})):[], updatedAt:+data.updatedAt||0, deleted:!!data.deleted};
+  w.players[id] = {name:String(data.name||'').slice(0,20), seed:data.seed==='apple'?'apple':'lantern', plantedAt:+data.plantedAt||Date.now(), lastSeen:+data.lastSeen||0, note:String(data.note||'').slice(0,80), visits:Array.isArray(data.visits)?data.visits.slice(-20).map(v=>({to:String(v.to||''), at:+v.at||0})):[], fireflies:Math.max(0,Math.min(1e6,+data.fireflies||0)), updatedAt:+data.updatedAt||0, deleted:!!data.deleted};
   saveWorld(w); return true;
 }
 function broadcast(msg){ for (const c of net.conns.values()) if (c.open) { try { c.send(msg); } catch (e) {} } }
@@ -285,7 +288,8 @@ function fresh(){
   return {stage:'ember', lit:false, reveal:0, fuel:0, drain:.03, t:0,
     maren:{x:-60,y:0,on:false,walk:false,sit:false,cold:false},
     sticks:[], drag:null, fed:0, hintAt:0, hint:false, hill:null, free:false, visiting:null,
-    plant:null, puff:0, flames:[], sparks:[], flash:0};
+    plant:null, puff:0, flames:[], sparks:[], flash:0,
+    flies:[], eyes:[], flyAt:0, eyeAt:0, total:null, dirty:false, savedAt:0, told:{}};
 }
 function placeStick(s){ s.x = fire.x + s.ox*k; s.y = fire.y + s.oy*k; }
 function addStick(){
@@ -441,6 +445,7 @@ async function visit(f){
       const stage = plantStage(f.plantedAt);
       const plant = f.seed === 'apple' ? 'an apple tree' : 'a lantern flower';
       await say(`That’s ${who}’s fire. They planted ${plant} ${ago(Date.now() - f.plantedAt)}.`, 1600);
+      if (f.fireflies) await say(f.fireflies >= 25 ? `${f.fireflies} fireflies caught. Look at their lanterns glow.` : `They\u2019ve caught ${f.fireflies} firefl${f.fireflies===1?'y':'ies'} so far.`, 1000);
       if (stage >= 3) await say(f.seed === 'apple' ? 'It’s bearing fruit already.' : 'It’s blooming. You can see the light from here.', 1400);
       if (f.note) await say(`“${f.note}”`, 2400, who + ' left word');
       const mine = load() || {}; const already = (mine.visits||[]).some(v => v.to === f.id && Date.now() - v.at < DAY);
@@ -510,12 +515,112 @@ function pop(strength){
 }
 $('snd').onclick = () => { muted = !muted; $('snd').textContent = muted ? 'Sound off' : 'Sound on'; };
 
+/* ---------- play: fireflies to catch, eyes to keep back ---------- */
+const jarsOf = n => Math.min(4, Math.floor(n/25));
+function total(){ if (S.total === null) S.total = (load()||{}).fireflies || 0; return S.total; }
+function chime(){
+  if (!ac || muted) return;
+  try { const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime;
+    o.type = 'sine'; o.frequency.setValueAtTime(880 + Math.random()*520, t); o.frequency.exponentialRampToValueAtTime(1600, t+.12);
+    g.gain.setValueAtTime(.07, t); g.gain.exponentialRampToValueAtTime(.0001, t+.3); o.connect(g).connect(ac.destination); o.start(t); o.stop(t+.32); } catch (e) {}
+}
+function catchFly(f){
+  S.flies.splice(S.flies.indexOf(f), 1);
+  for (let i=0;i<10;i++){ const a = Math.random()*Math.PI*2, v = 30+Math.random()*60; S.sparks.push({x:f.x, y:f.y, vx:Math.cos(a)*v, vy:Math.sin(a)*v, life:.5, max:.6, fly:true}); }
+  chime();
+  const before = total(); S.total = before + 1; S.dirty = true;
+  if (before === 0 && !S.told.fly){ S.told.fly = true; momentQueue.push('Fireflies. Catch enough and I’ll make you a lantern.'); }
+  if (jarsOf(S.total) > jarsOf(before)){ S.flash = .9; momentQueue.push(jarsOf(S.total) === 1 ? 'That’s a jar full. I’ll hang it by the fire.' : 'Another jar. Look how far the light reaches now.'); }
+  drainMoments();
+}
+function updatePlay(dt, t, R){
+  const hud = $('hud');
+  if (!S.free){ hud.classList.remove('on'); return; }
+  const n = total(), txt = n ? `${n} firefl${n===1?'y':'ies'}` : '';
+  if (hud.textContent !== txt) hud.textContent = txt;
+  hud.classList.toggle('on', !!n);
+  if (S.dirty && t - S.savedAt > 2 && load()){ S.dirty = false; S.savedAt = t; saveMine({fireflies: S.total}); }
+  // fireflies drift where it's dark
+  if (S.flies.length < 7 && t - S.flyAt > 1.4){
+    S.flyAt = t;
+    for (let tries=0; tries<6; tries++){
+      const x = 24 + Math.random()*(W-48), y = horizon - 50*k + Math.random()*(H - horizon - 20*k);
+      if (Math.hypot(x-fire.x, y-fire.y) > R*.42){ S.flies.push({x, y, ph:Math.random()*9, age:0, max:9+Math.random()*6}); break; }
+    }
+  }
+  S.flies = S.flies.filter(f => (f.age += dt) < f.max);
+  S.flies.forEach(f => { f.x += Math.sin(t*.8 + f.ph)*22*k*dt; f.y += Math.cos(t*1.1 + f.ph*1.3)*14*k*dt; f.x = Math.max(10, Math.min(W-10, f.x)); });
+  // eyes come out of the forest; the light keeps them back
+  const low = S.fuel < .35;
+  if (S.eyes.length < (low ? 3 : 2) && t - S.eyeAt > (low ? 5 : 11)){
+    S.eyeAt = t; const side = Math.random() < .5 ? -1 : 1;
+    S.eyes.push({x: side < 0 ? -16 : W+16, y: horizon + 40*k + Math.random()*(H - horizon - 90*k), flee:0, age:0, bl:Math.random()*5});
+    if (!S.told.eyes){ S.told.eyes = true; momentQueue.push('Something’s watching from the trees. Keep the fire bright, or shoo them.'); drainMoments(); }
+  }
+  S.eyes = S.eyes.filter(e => {
+    e.age += dt;
+    const dx = fire.x - e.x, dy = fire.y - e.y, d = Math.hypot(dx, dy) || 1;
+    if (e.flee){ e.flee += dt; e.x -= dx/d*240*k*dt; e.y -= dy/d*120*k*dt; return e.flee < 2.5; }
+    const edge = R*.66;
+    if (d > edge + 8){ const v = (12 + 46*(1 - S.fuel))*k; e.x += dx/d*v*dt; e.y += dy/d*v*.6*dt; }
+    else if (d < edge - 8){ e.x -= dx/d*24*k*dt; e.y -= dy/d*14*k*dt; }
+    if (S.fuel < .2 && d < edge + 14){
+      e.flee = 1;
+      if (S.sticks.length){ S.sticks.splice(Math.floor(Math.random()*S.sticks.length), 1); const tk = token; setTimeout(() => { if (tk===token) addStick(); }, 5000); }
+      momentQueue.push('Shoo! One of them ran off with a stick.'); drainMoments();
+    }
+    if (e.age > 28) e.flee = 1;
+    return true;
+  });
+}
+function drawPlay(t){
+  ctx.globalCompositeOperation = 'lighter';
+  S.flies.forEach(f => {
+    const fade = Math.min(1, f.age/.8, (f.max - f.age)/.8), pulse = .55 + .45*Math.sin(t*3.4 + f.ph*2);
+    const a = Math.max(0, fade*pulse);
+    const g = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, 16*k);
+    g.addColorStop(0, `rgba(215,255,120,${.55*a})`); g.addColorStop(1, 'rgba(160,255,80,0)');
+    ctx.fillStyle = g; ctx.fillRect(f.x-16*k, f.y-16*k, 32*k, 32*k);
+    ctx.fillStyle = `rgba(245,255,200,${a})`; ctx.beginPath(); ctx.arc(f.x, f.y, 2.2*k, 0, 7); ctx.fill();
+  });
+  ctx.globalCompositeOperation = 'source-over';
+  S.eyes.forEach(e => {
+    const a = e.flee ? Math.max(0, 1 - e.flee/1.2) : Math.min(1, e.age/1.5);
+    const bl = ((t + e.bl) % 4.2) < .14 ? .15 : 1, gap = 6.5*k, fx = Math.sign(fire.x - e.x)*1.2*k;
+    ctx.fillStyle = `rgba(230,240,120,${.12*a})`; ctx.beginPath(); ctx.ellipse(e.x + fx, e.y, 18*k, 9*k, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = `rgba(230,240,120,${.9*a})`;
+    for (const sx of [-1, 1]){ ctx.beginPath(); ctx.ellipse(e.x + sx*gap + fx, e.y, 2.6*k, 2.6*k*bl, 0, 0, 7); ctx.fill(); }
+  });
+  // lanterns on a pole beside Maren
+  const jars = jarsOf(total());
+  if (jars){
+    const px = seat.x - 40*k, top = fire.y - 78*k;
+    ctx.strokeStyle = '#3a2a1e'; ctx.lineWidth = 3*k; ctx.beginPath(); ctx.moveTo(px, fire.y + 14*k); ctx.lineTo(px, top); ctx.lineTo(px + 18*k*jars + 10*k, top); ctx.stroke();
+    ctx.strokeStyle = 'rgba(90,70,50,.9)'; ctx.lineWidth = 1;
+    for (let i=0;i<jars;i++){ const jx = px + 14*k + i*18*k; ctx.beginPath(); ctx.moveTo(jx, top); ctx.lineTo(jx, top + 10*k); ctx.stroke(); }
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i=0;i<jars;i++){
+      const jx = px + 14*k + i*18*k, jy = top + 16*k + Math.sin(t*1.4 + i)*1.5*k, gl = .75 + .25*Math.sin(t*2.6 + i*1.7);
+      const g = ctx.createRadialGradient(jx, jy, 0, jx, jy, 34*k); g.addColorStop(0, `rgba(210,255,120,${.35*gl})`); g.addColorStop(1, 'rgba(160,255,80,0)');
+      ctx.fillStyle = g; ctx.fillRect(jx-34*k, jy-34*k, 68*k, 68*k);
+      ctx.fillStyle = `rgba(230,255,170,${.8*gl})`; ctx.fillRect(jx-4.5*k, jy-6*k, 9*k, 12*k);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+}
+
 /* ---------- input ---------- */
 function pt(e){ return {x:e.clientX, y:e.clientY}; }
 cv.addEventListener('pointerdown', e => {
   const p = pt(e);
   skipReq = true;
   if (!S.lit){ S.lit = true; S.stage = 'world'; S.fuel = .55; S.flash = 1; burst(fire.x, fire.y-6, 26); startAudio(); for(let i=0;i<3;i++) addStick(); return; }
+  if (S.free){
+    const eye = S.eyes.find(e => !e.flee && Math.hypot(e.x-p.x, e.y-p.y) < 40*k);
+    if (eye){ eye.flee = 1; pop(.8); return; }
+    const fly = S.flies.find(f => Math.hypot(f.x-p.x, f.y-p.y) < 36*k);
+    if (fly){ catchFly(fly); return; }
+  }
   let best = null, bd = 44*k;
   for (const s of S.sticks){ const dd = Math.hypot(s.x-p.x, s.y-p.y); if (dd < bd){ bd = dd; best = s; } }
   if (best){ S.drag = best; best.gx = p.x - best.x; best.gy = p.y - best.y; cv.setPointerCapture(e.pointerId); cv.style.cursor = 'grabbing'; return; }
@@ -662,7 +767,7 @@ function frame(now){
 
   /* darkness: the light radius is the fire */
   const lantern = S.plant && S.plant.type === 'lantern' && S.plant.stage === 3;
-  const base = Math.max(W, H) * .44 * (lantern ? 1.3 : 1);
+  const base = Math.max(W, H) * .44 * (lantern ? 1.3 : 1) * (1 + .07*jarsOf(total()));
   const R = (24*k + S.reveal*(base - 24*k)) * (.55 + .5*S.fuel) * (1 + .03*Math.sin(t*13) + .02*Math.sin(t*7.3)) + S.flash*40*k;
   const dark = 1 - S.reveal*(1 - sky.dark);
   const dg = ctx.createRadialGradient(fire.x, fire.y-10*k, R*.12, fire.x, fire.y-10*k, R);
@@ -698,9 +803,11 @@ function frame(now){
   wg.addColorStop(0, `rgba(255,140,50,${.22 + .1*S.fuel + S.flash*.2})`); wg.addColorStop(1, 'rgba(255,90,20,0)');
   ctx.fillStyle = wg; ctx.fillRect(0,0,W,H);
   if (lantern){ const lg = ctx.createRadialGradient(plantAt.x, plantAt.y-48*k, 0, plantAt.x, plantAt.y-48*k, 90*k); lg.addColorStop(0,'rgba(255,190,90,.3)'); lg.addColorStop(1,'rgba(255,190,90,0)'); ctx.fillStyle = lg; ctx.fillRect(0,0,W,H); }
-  S.sparks.forEach(s => { const q = s.life/s.max; ctx.fillStyle = `rgba(255,${180+60*q},120,${q})`; ctx.fillRect(s.x, s.y, 2*k, 2*k); });
+  S.sparks.forEach(s => { const q = s.life/s.max; ctx.fillStyle = s.fly ? `rgba(220,255,140,${q})` : `rgba(255,${180+60*q},120,${q})`; ctx.fillRect(s.x, s.y, 2*k, 2*k); });
   if (S.puff > 0){ ctx.fillStyle = `rgba(200,170,130,${S.puff*.25})`; ctx.beginPath(); ctx.arc(plantAt.x, plantAt.y-4*k, (30 - 20*S.puff)*k, 0, 7); ctx.fill(); }
   ctx.globalCompositeOperation = 'source-over';
+
+  updatePlay(dt, t, R); drawPlay(t);
 
   if (S.drag){ drawStick(S.drag, .35); const dd = Math.hypot(S.drag.x-fire.x, S.drag.y-fire.y); if (dd < 62*k){ ctx.strokeStyle = 'rgba(255,190,110,.5)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(fire.x, fire.y-8*k, 40*k, 0, 7); ctx.stroke(); } }
 
