@@ -282,7 +282,7 @@ function skyNow(){
 let S, token = 0;
 const SPOTS = [[-38,92],[58,100],[150,62],[-168,64],[8,128],[-96,118]];
 function fresh(){
-  return {stage:'ember', lit:false, reveal:0, fuel:0, drain:.012, t:0,
+  return {stage:'ember', lit:false, reveal:0, fuel:0, drain:.03, t:0,
     maren:{x:-60,y:0,on:false,walk:false,sit:false,cold:false},
     sticks:[], drag:null, fed:0, hintAt:0, hint:false, hill:null, free:false, visiting:null,
     plant:null, puff:0, flames:[], sparks:[], flash:0};
@@ -300,12 +300,15 @@ function addStick(){
 /* ---------- async script helpers (cancel on restart) ---------- */
 const sleep = ms => { const t = token; return new Promise((res, rej) => setTimeout(() => t===token ? res() : rej('reset'), ms)); };
 const waitFor = fn => { const t = token; return new Promise((res, rej) => { const i = setInterval(() => { if (t!==token){clearInterval(i);rej('reset')} else if (fn()){clearInterval(i);res()} }, 80); }); };
+let skipReq = false;  // a tap anywhere finishes the line, a second tap moves on
 async function say(text, hold, who){
   $('who').textContent = who || 'Maren';
-  talk.classList.add('on'); talkText.textContent = '';
+  talk.classList.add('on'); talkText.textContent = ''; skipReq = false;
   if (reduce) talkText.textContent = text;
-  else for (let i=1;i<=text.length;i++){ talkText.textContent = text.slice(0,i); await sleep(26); }
-  await sleep(hold ?? 1300 + text.length*28);
+  else for (let i=1;i<=text.length;i++){ if (skipReq) break; talkText.textContent = text.slice(0,i); await sleep(14); }
+  talkText.textContent = text; skipReq = false;
+  const h = (hold ?? 500 + text.length*18)/1000, t0 = S.t;
+  await waitFor(() => skipReq || S.t - t0 >= h); skipReq = false;
 }
 const hush = () => talk.classList.remove('on');
 function askName(){
@@ -355,26 +358,26 @@ async function run(){
   const saved = load();
   if (saved) return returning(saved);
 
-  await sleep(3200);
+  await sleep(1200);
   S.maren.on = true; S.maren.walk = true; S.maren.y = seat.y;
   await waitFor(() => !S.maren.walk);
   S.maren.cold = true;
-  await say('Oh, thank goodness. Fire.', 700);
-  await say('May I sit?', 400);
+  await say('Oh, thank goodness. Fire.', 500);
+  await say('May I sit?', 300);
   S.drain = .09; S.hint = true; S.hintAt = S.t;
   const fedBefore = S.fed;
   await waitFor(() => S.fed > fedBefore);
-  S.hint = false; S.drain = .014; S.maren.cold = false; S.maren.sit = true;
-  await say('Ahh. That’s better.', 900);
+  S.hint = false; S.drain = .03; S.maren.cold = false; S.maren.sit = true;
+  await say('Ahh. That’s better.', 600);
   await say('I’m Maren. And you are?', 150);
   const name = await askName();
   me = freshSlug(name); refreshOthers(); announceMe();
   await say(name === 'friend' ? 'Friend, then. That suits you.' : `${name}. I’ll remember that.`, 1100);
   const f = fires[0];
   S.hill = f;
-  await say(`Look there, ${name}. On the hill.`, 1500);
+  await say(`Look there, ${name}. On the hill.`, 1100);
   await say(f.fake ? 'Someone lit theirs a few minutes ago.' : `${f.name || 'Someone'} lit theirs ${ago(Date.now() - f.plantedAt)}.`, 1200);
-  await say('You’re not alone out here. Never were.', 2000);
+  await say('You’re not alone out here. Never were.', 1400);
   S.hill = null;
   await say('I have two seeds, but I can only spare one.', 200);
   const seed = await askSeed();
@@ -394,7 +397,7 @@ async function returning(saved){
   S.maren.on = true; S.maren.sit = true; S.maren.x = seat.x; S.maren.y = seat.y;
   const since = saved.lastSeen || saved.plantedAt;
   saveMine({lastSeen: Date.now()});
-  await sleep(3000);
+  await sleep(1500);
   const n = saved.name === 'friend' ? 'friend' : saved.name;
   if (days === 0){
     await say(`Back already, ${n}?`, 900);
@@ -511,6 +514,7 @@ $('snd').onclick = () => { muted = !muted; $('snd').textContent = muted ? 'Sound
 function pt(e){ return {x:e.clientX, y:e.clientY}; }
 cv.addEventListener('pointerdown', e => {
   const p = pt(e);
+  skipReq = true;
   if (!S.lit){ S.lit = true; S.stage = 'world'; S.fuel = .55; S.flash = 1; burst(fire.x, fire.y-6, 26); startAudio(); for(let i=0;i<3;i++) addStick(); return; }
   let best = null, bd = 44*k;
   for (const s of S.sticks){ const dd = Math.hypot(s.x-p.x, s.y-p.y); if (dd < bd){ bd = dd; best = s; } }
@@ -529,7 +533,7 @@ const drop = () => {
   if (Math.hypot(s.x-fire.x, s.y-(fire.y-8*k)) < 62*k){
     S.sticks.splice(S.sticks.indexOf(s), 1);
     S.fuel = Math.min(1, S.fuel + .45); S.fed++; S.flash = .8; burst(fire.x, fire.y-10*k, 34); pop(1.4);
-    const t = token; setTimeout(() => { if (t===token) addStick(); }, 6500);
+    const t = token; setTimeout(() => { if (t===token) addStick(); }, 3000);
   } else placeStick(s);
 };
 cv.addEventListener('pointerup', drop); cv.addEventListener('pointercancel', drop);
@@ -620,7 +624,7 @@ function frame(now){
   S.fuel = Math.max(.14, S.fuel - S.drain*dt);
   S.flash = Math.max(0, S.flash - dt*1.6); S.puff = Math.max(0, S.puff - dt*.8);
   const m = S.maren;
-  if (m.on && m.walk){ m.x += 46*k*dt; m.y = seat.y; if (m.x >= seat.x){ m.x = seat.x; m.walk = false; } }
+  if (m.on && m.walk){ m.x += 95*k*dt; m.y = seat.y; if (m.x >= seat.x){ m.x = seat.x; m.walk = false; } }
   else if (m.on){ m.x = seat.x; m.y = seat.y; }
   const fsz = (.35 + .65*S.fuel)*k;
   const spawn = (reduce ? 1.2 : 4) * (.4 + S.fuel);
