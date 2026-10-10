@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#060508">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Ember</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2714%27 fill=%27%23060508%27/%3E%3Ccircle cx=%2716%27 cy=%2718%27 r=%276%27 fill=%27%23ffa047%27/%3E%3C/svg%3E">
+<script src="peerjs.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=Karla:wght@400;600&display=swap">
+<style>
+/* Layout: one full-screen canvas world; Maren's words float low over the firelight, nothing else on screen. */
+:root{
+  --night:#060508;
+  --ink:#f1e7d5;
+  --ember:#ffa047;
+  --dim:#9d8f80;
+  --panel:rgba(18,13,10,.78);
+  --line:rgba(255,160,71,.35);
+  --f-voice:"IM Fell English", "Iowan Old Style", Georgia, serif;
+  --f-ui:"Karla", system-ui, -apple-system, sans-serif;
+  color-scheme:dark;
+}
+html,body{height:100%;margin:0;background:var(--night);color:var(--ink);overflow:hidden;-webkit-user-select:none;user-select:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:default}
+#talk{position:fixed;left:16px;right:16px;bottom:calc(30px + env(safe-area-inset-bottom,0px));max-width:560px;margin:0 auto;text-align:center;pointer-events:none;opacity:0;transform:translateY(6px);transition:opacity .6s,transform .6s}
+#talk.on{opacity:1;transform:none}
+#talk .who{display:block;font:600 11px/1 var(--f-ui);letter-spacing:.2em;text-transform:uppercase;color:var(--ember);margin-bottom:10px}
+#talkText{font:400 clamp(20px,5vw,26px)/1.35 var(--f-voice);text-shadow:0 2px 14px #000,0 0 2px #000;text-wrap:balance;min-height:1.35em}
+.ask{position:fixed;left:16px;right:16px;bottom:calc(22px + env(safe-area-inset-bottom,0px));max-width:420px;margin:0 auto;display:flex;gap:10px;justify-content:center;flex-wrap:wrap;opacity:0;transform:translateY(8px);transition:opacity .5s,transform .5s;pointer-events:none}
+.ask.on{opacity:1;transform:none;pointer-events:auto}
+.ask input{flex:1 1 180px;min-width:0;font:400 20px var(--f-voice);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:12px 18px;outline:none}
+.ask input:focus{border-color:var(--ember)}
+.ask input::placeholder{color:var(--dim);font-style:italic}
+button{font:600 15px var(--f-ui);color:#1a0f06;background:var(--ember);border:0;border-radius:999px;padding:12px 22px;cursor:pointer}
+button:focus-visible,.ask input:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+.quiet{background:var(--panel);color:var(--ink);border:1px solid var(--line)}
+.seed{display:flex;align-items:center;gap:12px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:18px;padding:12px 18px 12px 12px;text-align:left;flex:1 1 160px}
+.seed:hover{border-color:var(--ember)}
+.seed b{display:block;font:400 19px/1.1 var(--f-voice)}
+.seed small{display:block;font:400 12px/1.4 var(--f-ui);color:var(--dim);letter-spacing:.06em;text-transform:uppercase;margin-top:3px}
+.seed svg{flex:none}
+#seedAsk,#visitAsk{bottom:calc(120px + env(safe-area-inset-bottom,0px))}
+#whoAsk{bottom:calc(60px + env(safe-area-inset-bottom,0px));max-width:520px}
+#whoAsk .lbl{flex:1 0 100%;text-align:center;font:400 22px var(--f-voice);color:var(--ink);margin-bottom:8px;text-shadow:0 2px 10px #000}
+#textAsk{bottom:calc(118px + env(safe-area-inset-bottom,0px))}
+#foot{position:fixed;left:16px;right:16px;bottom:calc(14px + env(safe-area-inset-bottom,0px));text-align:center;opacity:0;transition:opacity 1.6s;pointer-events:none}
+#foot.on{opacity:1;pointer-events:auto}
+#footLine{font:italic 400 18px/1.4 var(--f-voice);color:var(--ink);opacity:.82;text-shadow:0 2px 10px #000}
+#tools{display:flex;gap:6px 18px;justify-content:center;flex-wrap:wrap;margin-top:10px}
+.link{background:none;color:var(--dim);padding:6px 4px;font:400 12px var(--f-ui);letter-spacing:.08em;text-transform:uppercase}
+.link:hover{color:var(--ink)}
+#snd{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));right:12px;opacity:0;transition:opacity 1s;pointer-events:none}
+#snd.on{opacity:.7;pointer-events:auto}
+#ridgeHint{position:fixed;top:calc(46px + env(safe-area-inset-top,0px));left:16px;right:16px;text-align:center;font:400 12px var(--f-ui);letter-spacing:.08em;text-transform:uppercase;color:var(--dim);opacity:0;transition:opacity 1.2s;pointer-events:none;text-shadow:0 1px 6px #000}
+#ridgeHint.on{opacity:.8}
+#share{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));left:12px;opacity:.7}
+#share.hot{color:var(--ember);opacity:1}
+@media (prefers-reduced-motion:reduce){#talk,.ask,#foot{transition:none}}
+</style>
+</head>
+<body>
+
+<canvas id="c" aria-label="Ember: a small clearing at the edge of a forest. Tap to light the ember."></canvas>
+<div id="ridgeHint"></div>
+<div id="talk" aria-live="polite"><span class="who" id="who">Maren</span><div id="talkText"></div></div>
+<div class="ask" id="whoAsk"></div>
+<form class="ask" id="nameAsk" autocomplete="off">
+  <input id="nameIn" maxlength="20" placeholder="Your name" aria-label="Your name">
+  <button type="submit">That's me</button>
+</form>
+<form class="ask" id="textAsk" autocomplete="off">
+  <input id="textIn" maxlength="80" placeholder="A few words" aria-label="Your note">
+  <button type="submit">Leave it</button>
+  <button type="button" class="quiet" id="textNo">Never mind</button>
+</form>
+<div class="ask" id="seedAsk">
+  <button class="seed" id="pickApple" type="button">
+    <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true"><circle cx="17" cy="19" r="10" fill="#c8402c"/><path d="M17 9c0-3 2-5 5-5" stroke="#6b4a2a" stroke-width="2" fill="none"/><ellipse cx="22" cy="7" rx="4" ry="2" fill="#6f8f3a"/></svg>
+    <span><b>Apple tree</b><small>Food</small></span>
+  </button>
+  <button class="seed" id="pickLantern" type="button">
+    <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true"><circle cx="17" cy="20" r="12" fill="#ffb54d" opacity=".25"/><path d="M17 4v8" stroke="#6f8f3a" stroke-width="2"/><path d="M11 14q6-4 12 0l-2 12h-8z" fill="#ffc266"/></svg>
+    <span><b>Lantern flower</b><small>Light</small></span>
+  </button>
+</div>
+<div class="ask" id="visitAsk">
+  <button id="visitWarm" type="button">Warm their fire</button>
+  <button id="visitBack" type="button" class="quiet">Walk back</button>
+</div>
+<div id="foot">
+  <div id="footLine"></div>
+  <div id="tools">
+    <button class="link" id="noteBtn" type="button">Leave a note</button>
+    <button class="link" id="swapBtn" type="button">Someone else's turn</button>
+    <button class="link" id="skipDay" type="button">Skip ahead a day</button>
+    <button class="link" id="again" type="button">Start over</button>
+  </div>
+</div>
+<button class="link" id="snd" type="button">Sound on</button>
+<button class="link" id="share" type="button">Invite family</button>
+
+<script>
+(() => {
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const $ = id => document.getElementById(id);
+const talk = $('talk'), talkText = $('talkText'), foot = $('foot'), footLine = $('footLine');
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const KEY = 'ember.v2';
+const DAY = 864e5;
+
+/* ---------- who is sitting down: one fire per person, all on this account/device ---------- */
+let me = null;
+const world = () => { try { const w = JSON.parse(localStorage.getItem(KEY)); return w && w.players ? w : {players:{}}; } catch (e) { return {players:{}}; } };
+const saveWorld = w => { try { localStorage.setItem(KEY, JSON.stringify(w)); } catch (e) {} };
+const load = () => { if (!me) return null; const p = world().players[me]; return p && !p.deleted ? p : null; };
+const store = v => { if (!me) return; const w = world(); w.players[me] = v ? v : {deleted:true, updatedAt:Date.now()}; w.last = me; saveWorld(w); };
+const slug = s => (s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') || 'friend');
+function freshSlug(name){ const taken = new Set(allPlayers().map(p => p.id)); let b = slug(name), s = b, n = 2; while (taken.has(s)) s = `${b}-${n++}`; return s; }
+
+/* ---------- the shared world: every phone keeps every fire, and phones that share a family link sync directly ---------- */
+const net = {peer:null, slot:0, conns:new Map(), online:new Map(), code:null, others:[], ready:false, slots:8};
+function allPlayers(){ return Object.entries(world().players).filter(([,d]) => d && d.name && !d.deleted).map(([id,d]) => ({...d, id})); }
+function refreshOthers(){ net.others = allPlayers().filter(p => p.id !== me); placeOthers(); }
+function familyCode(){
+  const u = new URL(location.href); let c = u.searchParams.get('f'); net.joined = !!c;
+  if (!c || !/^[a-z0-9]{4,12}$/.test(c)){ c = Math.random().toString(36).slice(2,8); u.searchParams.set('f', c); history.replaceState(null, '', u); }
+  return c;
+}
+function merge(id, data){
+  if (!id || !data || typeof data !== 'object') return false;
+  const w = world(), cur = w.players[id];
+  if (cur && (cur.updatedAt||0) >= (data.updatedAt||0)) return false;
+  w.players[id] = {name:String(data.name||'').slice(0,20), seed:data.seed==='apple'?'apple':'lantern', plantedAt:+data.plantedAt||Date.now(), lastSeen:+data.lastSeen||0, note:String(data.note||'').slice(0,80), visits:Array.isArray(data.visits)?data.visits.slice(-20).map(v=>({to:String(v.to||''), at:+v.at||0})):[], updatedAt:+data.updatedAt||0, deleted:!!data.deleted};
+  saveWorld(w); return true;
+}
+function broadcast(msg){ for (const c of net.conns.values()) if (c.open) { try { c.send(msg); } catch (e) {} } }
+function connect(){
+  if (!window.Peer) return;
+  net.code = familyCode();
+  claim(1);
+}
+function peerOpts(){ const ps = new URL(location.href).searchParams.get('ps'); return ps ? {host: ps.split(':')[0], port: +ps.split(':')[1] || 9000, path:'/', secure:false, debug:0} : {debug:0}; }
+function claim(slot){
+  if (slot > net.slots) return;
+  const p = new Peer(`ember-${net.code}-${slot}`, peerOpts());
+  p.on('open', () => { net.peer = p; net.slot = slot; net.ready = true; p.on('connection', wire); dialAll(); setInterval(dialAll, 10000); });
+  p.on('error', e => { if (e.type === 'unavailable-id'){ p.destroy(); claim(slot + 1); } });
+  p.on('disconnected', () => { setTimeout(() => { try { p.reconnect(); } catch (e) {} }, 1500); });
+}
+function dialAll(){
+  if (!net.peer || net.peer.disconnected || net.peer.destroyed) return;
+  for (let s = 1; s <= net.slots; s++){
+    if (s === net.slot) continue;
+    const id = `ember-${net.code}-${s}`, c = net.conns.get(id);
+    if (c && (c.open || c._dialing)) continue;
+    try { const nc = net.peer.connect(id, {reliable:true}); nc._dialing = true; wire(nc); setTimeout(() => { nc._dialing = false; }, 8000); } catch (e) {}
+  }
+}
+function wire(c){
+  net.conns.set(c.peer, c);
+  c.on('open', () => { c._dialing = false; c.send({type:'world', players: world().players, me}); });
+  c.on('data', d => onData(c, d));
+  const bye = () => { if (net.conns.get(c.peer) === c) net.conns.delete(c.peer); for (const [who, pid] of net.online) if (pid === c.peer) net.online.delete(who); refreshOthers(); };
+  c.on('close', bye); c.on('error', bye);
+}
+function onData(c, d){
+  if (!d || typeof d !== 'object') return;
+  if (d.type === 'world'){
+    let changed = false;
+    if (d.players && typeof d.players === 'object') for (const [id, data] of Object.entries(d.players)) if (/^[a-z0-9-]{1,40}$/.test(id)) changed = merge(id, data) || changed;
+    if (d.me) net.online.set(String(d.me), c.peer);
+    refreshOthers();
+  } else if (d.type === 'fire'){
+    const before = world().players[d.id];
+    if (merge(d.id, d.data)){ refreshOthers(); liveMoment(d.id, before, world().players[d.id]); }
+  } else if (d.type === 'me'){
+    for (const [who, pid] of net.online) if (pid === c.peer) net.online.delete(who);
+    if (d.me) net.online.set(String(d.me), c.peer);
+    refreshOthers();
+  }
+}
+function saveMine(patch){
+  const cur = load() || {}; const next = {...cur, ...patch, updatedAt: Date.now()}; store(next);
+  broadcast({type:'fire', id: me, data: next});
+}
+function forgetMine(){ store(null); broadcast({type:'fire', id: me, data: world().players[me]}); }
+function announceMe(){ broadcast({type:'me', me}); }
+/* something happened on another phone just now */
+let momentQueue = [];
+function liveMoment(id, before, after){
+  if (!after || after.deleted || !me) return;
+  const was = (before && before.visits) || [], now = after.visits || [];
+  const fresh = now.find(v => v.to === me && v.at > Date.now() - 20000 && !was.some(o => o.at === v.at));
+  if (fresh){ S.flash = .8; burst(fire.x, fire.y - 10*k, 30); pop(1.2); momentQueue.push(`${after.name || 'Someone'} just sat down with us.`); }
+  else if (!before || !before.name) momentQueue.push(`A new fire on the ridge. ${after.name || 'Someone'}’s.`);
+  else if (before.note !== after.note && after.note) momentQueue.push(`${after.name || 'Someone'} just left word by their fire.`);
+  drainMoments();
+}
+async function drainMoments(){
+  if (!S.free || S.visiting || !momentQueue.length) return;
+  S.visiting = true; const t = token; foot.classList.remove('on');
+  try { while (momentQueue.length && t === token){ await say(momentQueue.shift(), 1800); } hush(); } catch (e) { return; }
+  if (t === token){ S.visiting = null; foot.classList.add('on'); }
+}
+$('share').onclick = async () => {
+  const url = location.href.split('#')[0], b = $('share');
+  try { if (navigator.share){ await navigator.share({title:'Ember', text:'Come sit by the fire.', url}); return; } } catch (e) { return; }
+  try { await navigator.clipboard.writeText(url); b.textContent = 'Link copied'; } catch (e) { b.textContent = url; }
+  b.classList.add('hot'); setTimeout(() => { b.textContent = 'Invite family'; b.classList.remove('hot'); }, 4000);
+};
+function askWho(){
+  return new Promise(res => {
+    const box = $('whoAsk'); box.innerHTML = '';
+    const lbl = document.createElement('span'); lbl.className = 'lbl'; lbl.textContent = 'Who’s sitting down?'; box.appendChild(lbl);
+    allPlayers().sort((a,b) => (b.lastSeen||0) - (a.lastSeen||0)).forEach(p => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'quiet'; b.textContent = p.name;
+      b.onclick = () => { box.classList.remove('on'); res(p.id); }; box.appendChild(b);
+    });
+    const n = document.createElement('button'); n.type = 'button'; n.textContent = 'Someone new';
+    n.onclick = () => { box.classList.remove('on'); res(null); }; box.appendChild(n);
+    box.classList.add('on');
+  });
+}
+const hashf = (s, salt) => { let h = 2166136261 ^ salt; for (let i=0;i<s.length;i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return ((h>>>0) % 10000)/10000; };
+
+/* ---------- world geometry ---------- */
+let W, H, k, horizon, fire, seat, plantAt, trees = [], backTrees = [], stars = [], tufts = [], fires = [];
+function rng(a){return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function layout(){
+  const d = Math.min(2, devicePixelRatio || 1);
+  W = innerWidth; H = innerHeight;
+  cv.width = W*d; cv.height = H*d; ctx.setTransform(d,0,0,d,0,0);
+  k = Math.max(.8, Math.min(1.4, Math.min(W, H)/640));
+  horizon = H*.47;
+  fire = {x: W/2, y: H*.6};
+  seat = {x: fire.x - Math.min(W*.22, 112*k), y: fire.y + 8*k};
+  plantAt = {x: fire.x + Math.min(W*.24, 118*k), y: fire.y + 14*k};
+  const r = rng(11);
+  trees = [];
+  const sides = [[-.04,.16],[.84,1.04]];
+  for (const [a,b] of sides) for (let i=0;i<5;i++){
+    const x = W*(a + (b-a)*r());
+    trees.push({x, base: H*(.62 + r()*.38), h: H*(.45 + r()*.35), w: 60*k + r()*50*k});
+  }
+  trees.sort((p,q)=>p.base-q.base);
+  stars = Array.from({length: 90}, () => ({x: r()*W, y: r()*horizon*.95, s: r()*1.3+.3, p: r()*6}));
+  tufts = Array.from({length: 70}, () => ({x: r()*W, y: horizon + 6 + r()*(H-horizon), h: (3+r()*5)*k}));
+  placeOthers();
+  S && S.sticks.forEach(placeStick);
+}
+function placeOthers(){
+  // Every real neighbour gets a hill of their own; with nobody out there yet, one fire still burns on the ridge.
+  const src = net.others.length ? net.others : [{id:'the-first-fire', fake:true, name:'', seed:'', plantedAt:Date.now()-7*60000}];
+  fires = src.map(o => {
+    const hx = o.fake ? .8 : .06 + .88*hashf(o.id, 7), hy = o.fake ? .7 : .3 + .7*hashf(o.id, 13);
+    return {...o, x: W*hx, y: horizon - (6 + 30*hy)*k, w: (70 + 70*hashf(o.id, 3))*k};
+  });
+  const r = rng(29); backTrees = [];
+  for (let x=-10; x<W+20; x+= (10+ r()*22)*k){
+    if (fires.some(f => Math.abs(f.x - x) < 36*k)) continue;
+    backTrees.push({x, base: horizon + r()*8*k, h: (26 + r()*48)*k, w: (12 + r()*12)*k});
+  }
+  const here = net.others.filter(o => net.online.has(o.id)).map(o => o.name);
+  $('ridgeHint').textContent = here.length ? `${here.join(' and ')} ${here.length>1?'are':'is'} by the fire right now. Tap a fire to walk over.` : net.others.length ? `${net.others.length} other fire${net.others.length>1?'s':''} on the ridge. Tap one.` : '';
+}
+
+/* ---------- time of day: the sky follows the player's own clock ---------- */
+function skyNow(){
+  const h = new Date().getHours() + new Date().getMinutes()/60;
+  if (h >= 21 || h < 5)  return {top:'#04060d', bot:'#11142a', dark:.95, stars:1};
+  if (h < 8)             return {top:'#1a1f3c', bot:'#6c4b55', dark:.72, stars:.25};
+  if (h < 16.5)          return {top:'#3b5166', bot:'#8d9a9c', dark:.5,  stars:0};
+  return                        {top:'#17142e', bot:'#7a4a3a', dark:.8,  stars:.5};
+}
+
+/* ---------- state ---------- */
+let S, token = 0;
+const SPOTS = [[-38,92],[58,100],[150,62],[-168,64],[8,128],[-96,118]];
+function fresh(){
+  return {stage:'ember', lit:false, reveal:0, fuel:0, drain:.012, t:0,
+    maren:{x:-60,y:0,on:false,walk:false,sit:false,cold:false},
+    sticks:[], drag:null, fed:0, hintAt:0, hint:false, hill:null, free:false, visiting:null,
+    plant:null, puff:0, flames:[], sparks:[], flash:0};
+}
+function placeStick(s){ s.x = fire.x + s.ox*k; s.y = fire.y + s.oy*k; }
+function addStick(){
+  const used = S.sticks.map(s=>s.spot);
+  const free = SPOTS.map((_,i)=>i).filter(i=>!used.includes(i));
+  if (!free.length) return;
+  const i = free[Math.floor(Math.random()*free.length)];
+  const s = {spot:i, ox:SPOTS[i][0], oy:SPOTS[i][1], a:(Math.random()-.5)*1.2, born:S.t};
+  placeStick(s); S.sticks.push(s);
+}
+
+/* ---------- async script helpers (cancel on restart) ---------- */
+const sleep = ms => { const t = token; return new Promise((res, rej) => setTimeout(() => t===token ? res() : rej('reset'), ms)); };
+const waitFor = fn => { const t = token; return new Promise((res, rej) => { const i = setInterval(() => { if (t!==token){clearInterval(i);rej('reset')} else if (fn()){clearInterval(i);res()} }, 80); }); };
+async function say(text, hold, who){
+  $('who').textContent = who || 'Maren';
+  talk.classList.add('on'); talkText.textContent = '';
+  if (reduce) talkText.textContent = text;
+  else for (let i=1;i<=text.length;i++){ talkText.textContent = text.slice(0,i); await sleep(26); }
+  await sleep(hold ?? 1300 + text.length*28);
+}
+const hush = () => talk.classList.remove('on');
+function askName(){
+  return new Promise(res => {
+    const f = $('nameAsk'), inp = $('nameIn');
+    inp.value = ''; f.classList.add('on'); setTimeout(()=>inp.focus({preventScroll:true}), 350);
+    f.onsubmit = e => { e.preventDefault(); inp.blur(); f.classList.remove('on');
+      const v = inp.value.trim().replace(/\s+/g,' ').slice(0,20);
+      res(v ? v[0].toUpperCase()+v.slice(1) : 'friend'); };
+  });
+}
+function askText(){
+  return new Promise(res => {
+    const f = $('textAsk'), inp = $('textIn');
+    inp.value = (load()||{}).note || ''; f.classList.add('on'); setTimeout(()=>inp.focus({preventScroll:true}), 350);
+    const done = v => { inp.blur(); f.classList.remove('on'); res(v); };
+    f.onsubmit = e => { e.preventDefault(); done(inp.value.trim().replace(/\s+/g,' ').slice(0,80)); };
+    $('textNo').onclick = () => done(null);
+  });
+}
+function askSeed(){
+  return new Promise(res => {
+    const box = $('seedAsk'); box.classList.add('on');
+    const pick = v => { box.classList.remove('on'); res(v); };
+    $('pickApple').onclick = () => pick('apple');
+    $('pickLantern').onclick = () => pick('lantern');
+  });
+}
+function askVisit(){
+  return new Promise(res => {
+    const box = $('visitAsk'); box.classList.add('on');
+    const pick = v => { box.classList.remove('on'); res(v); };
+    $('visitWarm').onclick = () => pick(true);
+    $('visitBack').onclick = () => pick(false);
+  });
+}
+const dayDiff = (a,b) => { const d = x => { const z = new Date(x); z.setHours(0,0,0,0); return z.getTime(); }; return Math.round((d(b)-d(a))/DAY); };
+const ago = ms => { const m = Math.max(1, Math.round(ms/60000)); if (m < 60) return m === 1 ? 'a minute ago' : `${m} minutes ago`; const h = Math.round(m/60); if (h < 24) return h === 1 ? 'an hour ago' : `${h} hours ago`; const d = Math.round(h/24); return d === 1 ? 'yesterday' : `${d} days ago`; };
+const plantStage = (plantedAt) => { const days = Math.max(0, dayDiff(plantedAt, Date.now())); return days === 0 ? 0 : Math.min(3, days + 1); };
+
+/* ---------- the first minute ---------- */
+async function run(){
+  me = null; refreshOthers();
+  if (!allPlayers().length && net.joined) await Promise.race([waitFor(() => allPlayers().length), sleep(5000)]);
+  if (allPlayers().length){ me = await askWho(); refreshOthers(); announceMe(); }
+  await waitFor(() => S.lit);
+  const saved = load();
+  if (saved) return returning(saved);
+
+  await sleep(3200);
+  S.maren.on = true; S.maren.walk = true; S.maren.y = seat.y;
+  await waitFor(() => !S.maren.walk);
+  S.maren.cold = true;
+  await say('Oh, thank goodness. Fire.', 700);
+  await say('May I sit?', 400);
+  S.drain = .09; S.hint = true; S.hintAt = S.t;
+  const fedBefore = S.fed;
+  await waitFor(() => S.fed > fedBefore);
+  S.hint = false; S.drain = .014; S.maren.cold = false; S.maren.sit = true;
+  await say('Ahh. That’s better.', 900);
+  await say('I’m Maren. And you are?', 150);
+  const name = await askName();
+  me = freshSlug(name); refreshOthers(); announceMe();
+  await say(name === 'friend' ? 'Friend, then. That suits you.' : `${name}. I’ll remember that.`, 1100);
+  const f = fires[0];
+  S.hill = f;
+  await say(`Look there, ${name}. On the hill.`, 1500);
+  await say(f.fake ? 'Someone lit theirs a few minutes ago.' : `${f.name || 'Someone'} lit theirs ${ago(Date.now() - f.plantedAt)}.`, 1200);
+  await say('You’re not alone out here. Never were.', 2000);
+  S.hill = null;
+  await say('I have two seeds, but I can only spare one.', 200);
+  const seed = await askSeed();
+  S.plant = {type: seed, stage: 0}; S.puff = 1;
+  saveMine({name, seed, plantedAt: Date.now(), lastSeen: Date.now(), note:'', visits:[]});
+  await say(seed === 'apple'
+    ? 'An apple tree. Nobody goes hungry near an apple tree.'
+    : 'A lantern flower. It will hold the dark back a little further.', 2400);
+  hush();
+  await sleep(900);
+  ending('Come back tomorrow. It will have grown.');
+}
+
+async function returning(saved){
+  const days = Math.max(0, dayDiff(saved.plantedAt, Date.now()));
+  S.plant = {type: saved.seed, stage: plantStage(saved.plantedAt)};
+  S.maren.on = true; S.maren.sit = true; S.maren.x = seat.x; S.maren.y = seat.y;
+  const since = saved.lastSeen || saved.plantedAt;
+  saveMine({lastSeen: Date.now()});
+  await sleep(3000);
+  const n = saved.name === 'friend' ? 'friend' : saved.name;
+  if (days === 0){
+    await say(`Back already, ${n}?`, 900);
+    await say('Seeds don’t hurry. Neither should you.', 1400);
+  } else if (S.plant.stage === 2){
+    await say(`You came back, ${n}.`, 900);
+    await say('Look. It came up while you were gone.', 1600);
+  } else {
+    await say(`There you are, ${n}.`, 900);
+    await say(saved.seed === 'apple'
+      ? 'It grew while you were away. Help yourself to an apple.'
+      : 'It’s blooming. See how far the light reaches now?', 2000);
+  }
+  // news from the ridge
+  const guests = net.others.filter(o => (o.visits||[]).some(v => v.to === me && v.at > since));
+  const arrivals = net.others.filter(o => o.plantedAt > since);
+  if (guests.length){
+    const g = guests[0]; S.hill = fires.find(f => f.id === g.id) || null;
+    await say(guests.length === 1 ? `${g.name || 'Someone'} sat by your fire while you were gone.` : `${g.name || 'Someone'} and ${guests.length-1} other${guests.length>2?'s':''} sat by your fire while you were gone.`, 2000);
+    S.hill = null;
+  }
+  if (arrivals.length){
+    const a = arrivals[0]; S.hill = fires.find(f => f.id === a.id) || null;
+    await say(arrivals.length === 1 ? `And there’s a new fire on the ridge. ${a.name || 'Someone'}’s.` : `And ${arrivals.length} new fires on the ridge since you left.`, 2000);
+    S.hill = null;
+  }
+  hush(); await sleep(600);
+  ending(days === 0 ? 'Come back tomorrow. It will have grown.' : S.plant.stage === 2 ? 'Come back tomorrow. It isn’t finished yet.' : 'This fire is home now.');
+}
+function ending(line){ footLine.textContent = line; foot.classList.add('on'); S.free = true; $('ridgeHint').classList.add('on'); drainMoments(); }
+
+/* ---------- walking over to a neighbour's fire ---------- */
+async function visit(f){
+  if (!S.free || S.visiting) return;
+  S.visiting = f; S.hill = f; foot.classList.remove('on');
+  try {
+    if (f.fake){
+      await say('That one? Someone far off. They’ll come down to the ridge one day.', 1800);
+    } else {
+      const who = f.name || 'Someone';
+      const stage = plantStage(f.plantedAt);
+      const plant = f.seed === 'apple' ? 'an apple tree' : 'a lantern flower';
+      await say(`That’s ${who}’s fire. They planted ${plant} ${ago(Date.now() - f.plantedAt)}.`, 1600);
+      if (stage >= 3) await say(f.seed === 'apple' ? 'It’s bearing fruit already.' : 'It’s blooming. You can see the light from here.', 1400);
+      if (f.note) await say(`“${f.note}”`, 2400, who + ' left word');
+      const mine = load() || {}; const already = (mine.visits||[]).some(v => v.to === f.id && Date.now() - v.at < DAY);
+      if (already) await say(`You’ve already been by today. ${who} will know.`, 1400);
+      else {
+        await say('Shall we go and sit with them a while?', 200);
+        const yes = await askVisit();
+        if (yes){
+          S.flash = .8; burst(f.x, f.y - 3*k, 18);
+          const visits = [...(mine.visits||[]), {to: f.id, at: Date.now()}].slice(-20);
+          saveMine({visits});
+          await say(`There. ${who} will know you were here.`, 1600);
+        }
+      }
+    }
+  } catch (e) { return; }
+  hush(); S.hill = null; S.visiting = null; foot.classList.add('on'); drainMoments();
+}
+$('noteBtn').onclick = async () => {
+  if (!S.free || S.visiting) return;
+  S.visiting = true; foot.classList.remove('on');
+  try {
+    await say('Leave a few words by the fire. Anyone who comes by will read them.', 200);
+    const v = await askText();
+    if (v !== null){ saveMine({note: v}); await say(v ? 'I’ll see that it’s read.' : 'Nothing, then. That’s fine too.', 1400); }
+  } catch (e) { return; }
+  hush(); S.visiting = null; foot.classList.add('on'); drainMoments();
+};
+
+function restart(){
+  token++; S = fresh(); hush();
+  foot.classList.remove('on'); $('ridgeHint').classList.remove('on');
+  ['whoAsk','nameAsk','seedAsk','textAsk','visitAsk'].forEach(id=>$(id).classList.remove('on'));
+  $('again').textContent = 'Start over'; armed = false;
+  run().catch(()=>{});
+}
+let armed = false;
+$('again').onclick = async () => {
+  if (!armed){ armed = true; $('again').textContent = 'Tap again to forget my fire'; setTimeout(()=>{ if(armed){armed=false;$('again').textContent='Start over'} }, 3500); return; }
+  await forgetMine(); restart();
+};
+$('swapBtn').onclick = () => restart();
+$('skipDay').onclick = () => { const s = load(); if (!s) return; s.plantedAt -= DAY; s.lastSeen = (s.lastSeen||Date.now()) - DAY; saveMine(s); restart(); };
+
+/* ---------- sound: a soft crackle that follows the fire ---------- */
+let ac, noiseGain, muted = false;
+function startAudio(){
+  try {
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    const len = ac.sampleRate*2, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+    let last = 0;
+    for (let i=0;i<len;i++){ const w = Math.random()*2-1; last = (last + .02*w)/1.02; d[i] = last*3.2; }
+    const src = ac.createBufferSource(); src.buffer = buf; src.loop = true;
+    const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
+    noiseGain = ac.createGain(); noiseGain.gain.value = 0;
+    src.connect(lp).connect(noiseGain).connect(ac.destination); src.start();
+    $('snd').classList.add('on');
+  } catch(e){}
+}
+function pop(strength){
+  if (!ac || muted) return;
+  const t = ac.currentTime, o = ac.createBufferSource(), b = ac.createBuffer(1, 600, ac.sampleRate), d = b.getChannelData(0);
+  for (let i=0;i<600;i++) d[i] = (Math.random()*2-1) * Math.pow(1-i/600, 4);
+  o.buffer = b; const g = ac.createGain(); g.gain.value = .12*strength;
+  const hp = ac.createBiquadFilter(); hp.type='highpass'; hp.frequency.value = 1200 + Math.random()*2000;
+  o.connect(hp).connect(g).connect(ac.destination); o.start(t);
+}
+$('snd').onclick = () => { muted = !muted; $('snd').textContent = muted ? 'Sound off' : 'Sound on'; };
+
+/* ---------- input ---------- */
+function pt(e){ return {x:e.clientX, y:e.clientY}; }
+cv.addEventListener('pointerdown', e => {
+  const p = pt(e);
+  if (!S.lit){ S.lit = true; S.stage = 'world'; S.fuel = .55; S.flash = 1; burst(fire.x, fire.y-6, 26); startAudio(); for(let i=0;i<3;i++) addStick(); return; }
+  let best = null, bd = 44*k;
+  for (const s of S.sticks){ const dd = Math.hypot(s.x-p.x, s.y-p.y); if (dd < bd){ bd = dd; best = s; } }
+  if (best){ S.drag = best; best.gx = p.x - best.x; best.gy = p.y - best.y; cv.setPointerCapture(e.pointerId); cv.style.cursor = 'grabbing'; return; }
+  if (S.free && !S.visiting){ const f = fires.find(f => Math.hypot(f.x-p.x, f.y-p.y) < 34*k); if (f) visit(f); }
+});
+cv.addEventListener('pointermove', e => {
+  const p = pt(e);
+  if (S.drag){ S.drag.x = p.x - S.drag.gx; S.drag.y = p.y - S.drag.gy; return; }
+  const near = S.lit && S.sticks.some(s => Math.hypot(s.x-p.x, s.y-p.y) < 44*k);
+  const far = S.free && !S.visiting && fires.some(f => Math.hypot(f.x-p.x, f.y-p.y) < 34*k);
+  cv.style.cursor = !S.lit ? 'pointer' : near ? 'grab' : far ? 'pointer' : 'default';
+});
+const drop = () => {
+  const s = S.drag; if (!s) return; S.drag = null; cv.style.cursor = 'default';
+  if (Math.hypot(s.x-fire.x, s.y-(fire.y-8*k)) < 62*k){
+    S.sticks.splice(S.sticks.indexOf(s), 1);
+    S.fuel = Math.min(1, S.fuel + .45); S.fed++; S.flash = .8; burst(fire.x, fire.y-10*k, 34); pop(1.4);
+    const t = token; setTimeout(() => { if (t===token) addStick(); }, 6500);
+  } else placeStick(s);
+};
+cv.addEventListener('pointerup', drop); cv.addEventListener('pointercancel', drop);
+
+/* ---------- particles ---------- */
+function burst(x,y,n){ for(let i=0;i<(reduce?n/3:n);i++){ const a = -Math.PI/2 + (Math.random()-.5)*2.2, v = 60+Math.random()*170; S.sparks.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:.6+Math.random()*.9,max:1.5}); } }
+
+/* ---------- drawing ---------- */
+function spruce(x, base, h, w, col){
+  ctx.fillStyle = col; ctx.beginPath();
+  const tiers = 6;
+  for (let i=0;i<tiers;i++){
+    const y0 = base - h*(i/tiers)*.92, ww = w*(1 - i/tiers)*.9 + w*.08;
+    ctx.moveTo(x - ww/2, y0); ctx.lineTo(x, y0 - h/tiers*1.9); ctx.lineTo(x + ww/2, y0);
+  }
+  ctx.fill(); ctx.fillRect(x - w*.04, base - h*.08, w*.08, h*.1);
+}
+function drawStick(s, glow){
+  ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.a);
+  const L = 34*k;
+  if (glow > 0){ ctx.strokeStyle = `rgba(255,170,80,${glow})`; ctx.lineWidth = 11*k; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(-L/2,0); ctx.lineTo(L/2,0); ctx.stroke(); }
+  ctx.strokeStyle = '#6b4a2e'; ctx.lineWidth = 5*k; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-L/2,0); ctx.lineTo(L/2,0); ctx.moveTo(L*.12,0); ctx.lineTo(L*.3,-7*k); ctx.stroke();
+  ctx.strokeStyle = '#8c6644'; ctx.lineWidth = 1.5*k; ctx.beginPath(); ctx.moveTo(-L/2+2,-1.5*k); ctx.lineTo(L/2-2,-1.5*k); ctx.stroke();
+  ctx.restore();
+}
+function drawMaren(m, t){
+  const x = m.x + (m.cold ? Math.sin(t*42)*1.1 : 0), y = m.y;
+  const h = (m.sit ? 50 : 74)*k, bob = m.walk ? Math.abs(Math.sin(t*7))*2.5*k : 0, top = y - h - bob;
+  ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(x, y+2, 24*k, 5*k, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#3d2c24';
+  ctx.beginPath(); ctx.moveTo(x-7*k, top+9*k);
+  ctx.quadraticCurveTo(x-26*k, y-h*.35, x-22*k, y); ctx.lineTo(x+20*k, y);
+  ctx.quadraticCurveTo(x+18*k, y-h*.45, x+9*k, top+11*k); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.arc(x+1*k, top+7*k, 12.5*k, 0, 7); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,150,70,.45)'; ctx.lineWidth = 2*k;
+  ctx.beginPath(); ctx.moveTo(x+9*k, top+11*k); ctx.quadraticCurveTo(x+18*k, y-h*.45, x+20*k, y); ctx.stroke();
+  ctx.fillStyle = '#c99a72'; ctx.beginPath(); ctx.ellipse(x+6*k, top+9*k, 5*k, 7*k, .1, 0, 7); ctx.fill();
+  ctx.fillStyle = '#d8d2c8'; ctx.beginPath(); ctx.ellipse(x+3*k, top+3*k, 5*k, 2.5*k, -.3, 0, 7); ctx.fill();
+  if (m.sit && !m.cold){ ctx.fillStyle = '#c99a72'; ctx.beginPath(); ctx.ellipse(x+24*k, y-h*.42, 4.5*k, 3.2*k, 0, 0, 7); ctx.fill(); }
+  if (m.cold){ ctx.fillStyle = 'rgba(220,225,235,.25)'; const b = (t*1.2)%1; ctx.beginPath(); ctx.arc(x+14*k + b*10*k, top+8*k - b*6*k, (2+b*4)*k, 0, 7); ctx.fill(); }
+}
+function drawPlant(p, t){
+  const x = plantAt.x, y = plantAt.y;
+  ctx.fillStyle = '#2b1f15'; ctx.beginPath(); ctx.ellipse(x, y, 16*k, 5*k, 0, 0, 7); ctx.fill();
+  const leaf = (lx,ly,a,s) => { ctx.save(); ctx.translate(lx,ly); ctx.rotate(a); ctx.fillStyle = '#5f7f35'; ctx.beginPath(); ctx.ellipse(s*.5,0,s*.5,s*.22,0,0,7); ctx.fill(); ctx.restore(); };
+  const sway = Math.sin(t*1.3)*.06;
+  if (p.stage === 0){ ctx.fillStyle = '#3a2a1c'; ctx.beginPath(); ctx.ellipse(x, y-2*k, 9*k, 4*k, 0, Math.PI, 0); ctx.fill(); return; }
+  if (p.stage === 1 || p.stage === 2){
+    const hh = (p.stage === 1 ? 12 : 34)*k;
+    ctx.strokeStyle = '#4e6b2b'; ctx.lineWidth = 2.2*k; ctx.beginPath(); ctx.moveTo(x, y); ctx.quadraticCurveTo(x+3*k, y-hh/2, x+hh*sway, y-hh); ctx.stroke();
+    leaf(x+hh*sway, y-hh, -.5, 11*k); leaf(x+hh*sway, y-hh, Math.PI+.5, 11*k);
+    if (p.stage === 2){ leaf(x+1, y-hh*.5, -.2, 10*k); leaf(x+1, y-hh*.45, Math.PI+.3, 9*k); }
+    return;
+  }
+  if (p.type === 'apple'){
+    ctx.fillStyle = '#4a3220'; ctx.fillRect(x-3*k, y-46*k, 6*k, 46*k);
+    ctx.fillStyle = '#2f4a22'; [[0,-70,30],[-20,-58,20],[20,-58,20],[0,-52,24]].forEach(([dx,dy,r]) => { ctx.beginPath(); ctx.arc(x+dx*k+sway*10, y+dy*k, r*k, 0, 7); ctx.fill(); });
+    ctx.fillStyle = '#c4402c'; [[-14,-60],[12,-72],[18,-52],[-4,-48],[-22,-70]].forEach(([dx,dy]) => { ctx.beginPath(); ctx.arc(x+dx*k+sway*10, y+dy*k, 4.2*k, 0, 7); ctx.fill(); });
+  } else {
+    ctx.strokeStyle = '#4e6b2b'; ctx.lineWidth = 2.5*k;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.quadraticCurveTo(x-4*k, y-40*k, x+8*k+sway*20, y-62*k); ctx.stroke();
+    leaf(x-1, y-20*k, -.6, 14*k); leaf(x-2, y-30*k, Math.PI+.5, 13*k);
+    [[8,-56],[-6,-44],[16,-40]].forEach(([dx,dy],i) => { const bx = x+dx*k+sway*20, by = y+dy*k, gl = .75+.25*Math.sin(t*2+i);
+      ctx.fillStyle = `rgba(255,190,90,${gl})`; ctx.beginPath(); ctx.moveTo(bx-5*k, by); ctx.quadraticCurveTo(bx, by-6*k, bx+5*k, by); ctx.lineTo(bx+3*k, by+9*k); ctx.lineTo(bx-3*k, by+9*k); ctx.closePath(); ctx.fill(); });
+  }
+}
+
+let last = performance.now();
+function frame(now){
+  const dt = Math.min(.05, (now - last)/1000); last = now; S.t += dt; const t = S.t;
+  const sky = skyNow();
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+
+  if (!S.lit){
+    ctx.fillStyle = '#000'; ctx.fillRect(0,0,W,H);
+    const p = .5 + .5*Math.sin(t*2.2);
+    const g = ctx.createRadialGradient(fire.x, fire.y, 0, fire.x, fire.y, (40+20*p)*k);
+    g.addColorStop(0, `rgba(255,170,80,${.55+.3*p})`); g.addColorStop(.25, `rgba(230,80,30,${.25+.15*p})`); g.addColorStop(1, 'rgba(120,20,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = `rgb(255,${190+40*p},${120+60*p})`; ctx.beginPath(); ctx.arc(fire.x, fire.y, (3+1.2*p)*k, 0, 7); ctx.fill();
+    if (t > 4){ const r = ((t-4)%2.4)/2.4; ctx.strokeStyle = `rgba(255,170,80,${.35*(1-r)})`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(fire.x, fire.y, (14+50*r)*k, 0, 7); ctx.stroke(); }
+    requestAnimationFrame(frame); return;
+  }
+
+  /* simulate */
+  S.reveal = Math.min(1, S.reveal + dt/3.6);
+  S.fuel = Math.max(.14, S.fuel - S.drain*dt);
+  S.flash = Math.max(0, S.flash - dt*1.6); S.puff = Math.max(0, S.puff - dt*.8);
+  const m = S.maren;
+  if (m.on && m.walk){ m.x += 46*k*dt; m.y = seat.y; if (m.x >= seat.x){ m.x = seat.x; m.walk = false; } }
+  else if (m.on){ m.x = seat.x; m.y = seat.y; }
+  const fsz = (.35 + .65*S.fuel)*k;
+  const spawn = (reduce ? 1.2 : 4) * (.4 + S.fuel);
+  for (let i=0;i<spawn;i++) S.flames.push({x: fire.x + (Math.random()-.5)*26*fsz, y: fire.y - 4*k, vx:(Math.random()-.5)*14, vy: -(50+Math.random()*70)*fsz, life: .5+Math.random()*.5, max: 1, s: (9+Math.random()*10)*fsz});
+  if (Math.random() < dt*(1+S.fuel*3)){ S.sparks.push({x: fire.x+(Math.random()-.5)*14*k, y: fire.y-16*k, vx:(Math.random()-.5)*40, vy:-(80+Math.random()*90), life:1.2, max:1.5}); if (Math.random()<.5) pop(.5); }
+  S.flames = S.flames.filter(f => (f.life -= dt) > 0); S.flames.forEach(f => { f.x += f.vx*dt; f.y += f.vy*dt; });
+  S.sparks = S.sparks.filter(s => (s.life -= dt) > 0); S.sparks.forEach(s => { s.x += s.vx*dt; s.y += s.vy*dt; s.vy += 40*dt; s.vx *= .99; });
+  if (noiseGain && ac) noiseGain.gain.setTargetAtTime(muted ? 0 : .05 + .09*S.fuel, ac.currentTime, .3);
+
+  /* ground */
+  const gg = ctx.createLinearGradient(0, horizon, 0, H); gg.addColorStop(0, '#15130f'); gg.addColorStop(1, '#0d0a07');
+  ctx.fillStyle = gg; ctx.fillRect(0, horizon, W, H-horizon);
+  ctx.fillStyle = '#2a2017'; ctx.beginPath(); ctx.ellipse(fire.x, fire.y+12*k, 230*k, 70*k, 0, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#2e3a1f'; ctx.lineWidth = 1.2;
+  tufts.forEach(u => { ctx.beginPath(); ctx.moveTo(u.x, u.y); ctx.lineTo(u.x-2, u.y-u.h); ctx.moveTo(u.x, u.y); ctx.lineTo(u.x+2, u.y-u.h*.8); ctx.stroke(); });
+
+  /* stones and logs */
+  for (let i=0;i<9;i++){ const a = i/9*Math.PI*2; ctx.fillStyle = i%2 ? '#4a4540' : '#3c3833'; ctx.beginPath(); ctx.ellipse(fire.x + Math.cos(a)*30*k, fire.y + Math.sin(a)*10*k, 8*k, 5*k, 0, 0, 7); ctx.fill(); }
+  ctx.strokeStyle = '#2a1c12'; ctx.lineWidth = 6*k; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(fire.x-20*k, fire.y+2*k); ctx.lineTo(fire.x+16*k, fire.y-6*k); ctx.moveTo(fire.x+20*k, fire.y+2*k); ctx.lineTo(fire.x-14*k, fire.y-7*k); ctx.stroke();
+
+  /* things in the clearing, back to front */
+  const things = [];
+  if (S.plant) things.push({y: plantAt.y, d: () => drawPlant(S.plant, t)});
+  if (m.on) things.push({y: m.y, d: () => drawMaren(m, t)});
+  S.sticks.forEach(s => { if (s !== S.drag) things.push({y: s.y, d: () => drawStick(s, S.hint ? .25 + .25*Math.sin(t*4) : .08 + .06*Math.sin(t*2 + s.spot)) }); });
+  things.sort((a,b) => a.y - b.y).forEach(o => o.d());
+
+  /* flames */
+  ctx.globalCompositeOperation = 'lighter';
+  S.flames.forEach(f => { const q = f.life/f.max; ctx.fillStyle = `hsla(${14 + 34*q},100%,${45 + 22*q}%,${.42*q})`; ctx.beginPath(); ctx.arc(f.x, f.y, f.s*(.4 + .6*q), 0, 7); ctx.fill(); });
+  ctx.globalCompositeOperation = 'source-over';
+
+  trees.forEach(tr => spruce(tr.x, tr.base, tr.h, tr.w, '#0a0f0b'));
+
+  /* darkness: the light radius is the fire */
+  const lantern = S.plant && S.plant.type === 'lantern' && S.plant.stage === 3;
+  const base = Math.max(W, H) * .44 * (lantern ? 1.3 : 1);
+  const R = (24*k + S.reveal*(base - 24*k)) * (.55 + .5*S.fuel) * (1 + .03*Math.sin(t*13) + .02*Math.sin(t*7.3)) + S.flash*40*k;
+  const dark = 1 - S.reveal*(1 - sky.dark);
+  const dg = ctx.createRadialGradient(fire.x, fire.y-10*k, R*.12, fire.x, fire.y-10*k, R);
+  dg.addColorStop(0, 'rgba(6,5,8,0)'); dg.addColorStop(.5, `rgba(6,5,8,${dark*.35})`); dg.addColorStop(1, `rgba(6,5,8,${dark})`);
+  ctx.fillStyle = dg; ctx.fillRect(0,0,W,H);
+
+  /* sky, stars, hills, back forest */
+  ctx.globalAlpha = S.reveal;
+  const sg = ctx.createLinearGradient(0,0,0,horizon); sg.addColorStop(0, sky.top); sg.addColorStop(1, sky.bot);
+  ctx.fillStyle = sg; ctx.fillRect(0,0,W,horizon+1);
+  if (sky.stars){ stars.forEach(s => { ctx.fillStyle = `rgba(235,230,255,${sky.stars*(.35 + .35*Math.sin(t*1.5 + s.p))})`; ctx.fillRect(s.x, s.y, s.s, s.s); }); }
+  ctx.fillStyle = '#07080d';
+  fires.forEach(f => { ctx.beginPath(); ctx.moveTo(f.x - f.w, horizon+2); ctx.bezierCurveTo(f.x - f.w*.5, horizon-4*k, f.x - f.w*.35, f.y, f.x, f.y); ctx.bezierCurveTo(f.x + f.w*.35, f.y, f.x + f.w*.5, horizon-4*k, f.x + f.w, horizon+2); ctx.fill(); });
+  backTrees.forEach(b => spruce(b.x, b.base, b.h, b.w, '#070a0a'));
+  ctx.fillStyle = '#0b0b0b'; ctx.fillRect(0, horizon, W, 3);
+  ctx.globalAlpha = 1;
+
+  /* the other fires */
+  ctx.globalCompositeOperation = 'lighter';
+  fires.forEach((f, i) => {
+    const hf = .7 + .3*Math.sin(t*9 + i) * Math.sin(t*3.1 + i*.7), big = S.hill === f;
+    const lit = (f.fake || f.seed !== 'lantern' || plantStage(f.plantedAt) < 3 ? 1 : 1.5) * (net.online.has(f.id) ? 1.5 + .2*Math.sin(t*2) : 1);
+    const hg = ctx.createRadialGradient(f.x, f.y-3*k, 0, f.x, f.y-3*k, 26*k*lit*(big ? 1.6 : 1));
+    hg.addColorStop(0, `rgba(255,170,80,${.75*hf*S.reveal})`); hg.addColorStop(1, 'rgba(255,90,20,0)');
+    ctx.fillStyle = hg; ctx.fillRect(f.x-70*k, f.y-70*k, 140*k, 140*k);
+    ctx.fillStyle = `rgba(255,220,150,${hf*S.reveal})`; ctx.beginPath(); ctx.arc(f.x, f.y-3*k, 2*k, 0, 7); ctx.fill();
+    if (big){ const r = (t%2)/2; ctx.strokeStyle = `rgba(255,170,80,${.6*(1-r)})`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(f.x, f.y-3*k, (8+38*r)*k, 0, 7); ctx.stroke(); }
+    if (S.free && !S.visiting && !big){ ctx.strokeStyle = `rgba(255,170,80,${.18 + .1*Math.sin(t*2+i)})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(f.x, f.y-3*k, 12*k, 0, 7); ctx.stroke(); }
+  });
+
+  /* warm bloom, sparks, lantern glow */
+  const wg = ctx.createRadialGradient(fire.x, fire.y-14*k, 0, fire.x, fire.y-14*k, R*.55);
+  wg.addColorStop(0, `rgba(255,140,50,${.22 + .1*S.fuel + S.flash*.2})`); wg.addColorStop(1, 'rgba(255,90,20,0)');
+  ctx.fillStyle = wg; ctx.fillRect(0,0,W,H);
+  if (lantern){ const lg = ctx.createRadialGradient(plantAt.x, plantAt.y-48*k, 0, plantAt.x, plantAt.y-48*k, 90*k); lg.addColorStop(0,'rgba(255,190,90,.3)'); lg.addColorStop(1,'rgba(255,190,90,0)'); ctx.fillStyle = lg; ctx.fillRect(0,0,W,H); }
+  S.sparks.forEach(s => { const q = s.life/s.max; ctx.fillStyle = `rgba(255,${180+60*q},120,${q})`; ctx.fillRect(s.x, s.y, 2*k, 2*k); });
+  if (S.puff > 0){ ctx.fillStyle = `rgba(200,170,130,${S.puff*.25})`; ctx.beginPath(); ctx.arc(plantAt.x, plantAt.y-4*k, (30 - 20*S.puff)*k, 0, 7); ctx.fill(); }
+  ctx.globalCompositeOperation = 'source-over';
+
+  if (S.drag){ drawStick(S.drag, .35); const dd = Math.hypot(S.drag.x-fire.x, S.drag.y-fire.y); if (dd < 62*k){ ctx.strokeStyle = 'rgba(255,190,110,.5)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(fire.x, fire.y-8*k, 40*k, 0, 7); ctx.stroke(); } }
+
+  if (S.hint && t - S.hintAt > 3.5 && !S.drag && S.sticks.length){
+    const s = S.sticks.reduce((a,b) => Math.hypot(a.x-fire.x,a.y-fire.y) < Math.hypot(b.x-fire.x,b.y-fire.y) ? a : b);
+    const ph = ((t - S.hintAt) % 2.2)/2.2, e = ph < .8 ? ph/.8 : 1, ease = e*e*(3-2*e);
+    const gx = s.x + (fire.x - s.x)*ease, gy = s.y + (fire.y - 8*k - s.y)*ease;
+    ctx.fillStyle = `rgba(255,235,210,${.55*(1 - Math.max(0,(ph-.8)/.2))})`;
+    ctx.beginPath(); ctx.arc(gx, gy, 9*k, 0, 7); ctx.fill();
+    ctx.strokeStyle = `rgba(255,235,210,${.3*(1-ph)})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(gx, gy, 16*k, 0, 7); ctx.stroke();
+  }
+
+  requestAnimationFrame(frame);
+}
+
+S = fresh();
+layout();
+addEventListener('resize', layout);
+connect();
+run().catch(()=>{});
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
