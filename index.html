@@ -138,7 +138,10 @@ let me = null;
 const world = () => { try { const w = JSON.parse(localStorage.getItem(KEY)); return w && w.players ? w : {players:{}}; } catch (e) { return {players:{}}; } };
 const saveWorld = w => { try { localStorage.setItem(KEY, JSON.stringify(w)); } catch (e) {} };
 const load = () => { if (!me) return null; const p = world().players[me]; return p && !p.deleted ? p : null; };
-const store = v => { if (!me) return; const w = world(); w.players[me] = v ? v : {deleted:true, updatedAt:Date.now()}; w.last = me; saveWorld(w); };
+const store = v => { if (!me) return; const w = world(); w.players[me] = v ? v : {deleted:true, updatedAt:Date.now()}; w.last = me;
+  w.mine = myIds(w).filter(id => id !== me); if (v) w.mine.push(me); saveWorld(w); };
+function myIds(w){ w = w || world(); const ids = Array.isArray(w.mine) ? w.mine.slice() : (w.last ? [w.last] : []); return ids.filter(id => w.players[id] && !w.players[id].deleted && w.players[id].name); }
+let pickNext = false;
 const slug = s => (s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') || 'friend');
 function freshSlug(name){ const taken = new Set(allPlayers().map(p => p.id)); let b = slug(name), s = b, n = 2; while (taken.has(s)) s = `${b}-${n++}`; return s; }
 
@@ -285,11 +288,11 @@ $('share').onclick = async () => {
   try { await navigator.clipboard.writeText(url); b.textContent = 'Link copied'; } catch (e) { b.textContent = url; }
   b.classList.add('hot'); setTimeout(() => { b.textContent = 'Invite family'; b.classList.remove('hot'); }, 4000);
 };
-function askWho(){
+function askWho(ids){
   return new Promise(res => {
     const box = $('whoAsk'); box.innerHTML = '';
     const lbl = document.createElement('span'); lbl.className = 'lbl'; lbl.textContent = 'Who’s sitting down?'; box.appendChild(lbl);
-    allPlayers().sort((a,b) => (b.lastSeen||0) - (a.lastSeen||0)).forEach(p => {
+    allPlayers().filter(p => ids.includes(p.id)).sort((a,b) => (b.lastSeen||0) - (a.lastSeen||0)).forEach(p => {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'quiet'; b.textContent = p.name;
       b.onclick = () => { box.classList.remove('on'); res(p.id); }; box.appendChild(b);
     });
@@ -431,7 +434,10 @@ async function run(){
   me = null; refreshOthers();
   await Promise.race([net.pulled || Promise.resolve(), sleep(4000)]);
   if (!allPlayers().length && net.joined) await Promise.race([waitFor(() => allPlayers().length), sleep(2500)]);
-  if (allPlayers().length){ me = await askWho(); refreshOthers(); announceMe(); }
+  const mineIds = myIds();
+  if (mineIds.length === 1 && !pickNext) me = mineIds[0];
+  else if (mineIds.length){ me = await askWho(mineIds); }
+  pickNext = false; refreshOthers(); if (me) announceMe();
   await waitFor(() => S.lit);
   const saved = load();
   if (saved) return returning(saved);
@@ -562,7 +568,7 @@ $('again').onclick = async () => {
   if (!armed){ armed = true; $('again').textContent = 'Tap again to forget my fire'; setTimeout(()=>{ if(armed){armed=false;$('again').textContent='Start over'} }, 3500); return; }
   await forgetMine(); restart();
 };
-$('swapBtn').onclick = () => restart();
+$('swapBtn').onclick = () => { pickNext = true; restart(); };
 if (!/[?&]dev=1/.test(location.search)) $('skipDay').hidden = true;
 $('skipDay').onclick = () => { const s = load(); if (!s) return; s.plantedAt -= DAY; s.lastSeen = (s.lastSeen||Date.now()) - DAY; saveMine(s); restart(); };
 
@@ -642,7 +648,6 @@ function updatePlay(dt, t, R){
   if (S.eyes.length < (low ? 2 : 1) && t - S.eyeAt > (low ? 10 : 20)){
     S.eyeAt = t; const side = Math.random() < .5 ? -1 : 1;
     S.eyes.push({x: side < 0 ? -16 : W+16, y: horizon + 40*k + Math.random()*(H - horizon - 90*k), flee:0, age:0, bl:Math.random()*5}); rustle(side);
-    if (!S.told.eyes){ S.told.eyes = true; momentQueue.push('Something’s watching from the trees. Keep the fire bright, or shoo them.'); drainMoments(); }
   }
   S.eyes = S.eyes.filter(e => {
     e.age += dt;
@@ -656,6 +661,7 @@ function updatePlay(dt, t, R){
       if (S.sticks.length){ S.sticks.splice(Math.floor(Math.random()*S.sticks.length), 1); const tk = token; setTimeout(() => { if (tk===token) addStick(); }, 5000); }
       momentQueue.push('Shoo! One of them ran off with a stick.'); drainMoments();
     }
+    if (!e.flee && e.age > 1.2){ e.x = Math.max(26*k, Math.min(W - 26*k, e.x)); }
     if (e.age > 28) e.flee = 1;
     return true;
   });
