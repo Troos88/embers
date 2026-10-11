@@ -1,0 +1,13 @@
+import { chromium } from 'playwright';
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args:['--autoplay-policy=no-user-gesture-required'] });
+const p = await b.newPage({ viewport:{width:390,height:780}, isMobile:true, hasTouch:true });
+const errs=[]; p.on('pageerror', e => errs.push(e.message));
+await p.goto('file://' + process.cwd() + '/index.html?f=smoke');
+await p.waitForTimeout(600);
+await p.locator('canvas').tap({position:{x:195,y:468}});
+await p.waitForFunction(() => document.getElementById('talkText').textContent.length > 5, null, {timeout:15000});
+await p.waitForTimeout(2500);
+console.log('talk:', await p.locator('#talkText').textContent());
+console.log('audio:', await p.evaluate(() => typeof AudioContext));
+console.log('errors:', errs);
+await b.close();

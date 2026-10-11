@@ -285,7 +285,7 @@ function skyNow(){
 let S, token = 0;
 const SPOTS = [[-38,92],[58,100],[150,62],[-168,64],[8,128],[-96,118]];
 function fresh(){
-  return {stage:'ember', lit:false, reveal:0, fuel:0, drain:.03, t:0,
+  return {stage:'ember', lit:false, reveal:0, fuel:0, drain:.016, t:0,
     maren:{x:-60,y:0,on:false,walk:false,sit:false,cold:false},
     sticks:[], drag:null, fed:0, hintAt:0, hint:false, hill:null, free:false, visiting:null,
     plant:null, puff:0, flames:[], sparks:[], flash:0,
@@ -309,9 +309,9 @@ async function say(text, hold, who){
   $('who').textContent = who || 'Maren';
   talk.classList.add('on'); talkText.textContent = ''; skipReq = false;
   if (reduce) talkText.textContent = text;
-  else for (let i=1;i<=text.length;i++){ if (skipReq) break; talkText.textContent = text.slice(0,i); await sleep(14); }
+  else for (let i=1;i<=text.length;i++){ if (skipReq) break; talkText.textContent = text.slice(0,i); if (i % 2 === 0 && /[a-zA-Z\u00c0-\u017f]/.test(text[i-1])) blip(text[i-1]); await sleep(24); }
   talkText.textContent = text; skipReq = false;
-  const h = (hold ?? 500 + text.length*18)/1000, t0 = S.t;
+  const h = ((hold ?? 700 + text.length*24) + 500 + text.length*15)/1000, t0 = S.t;
   await waitFor(() => skipReq || S.t - t0 >= h); skipReq = false;
 }
 const hush = () => talk.classList.remove('on');
@@ -371,7 +371,7 @@ async function run(){
   S.drain = .09; S.hint = true; S.hintAt = S.t;
   const fedBefore = S.fed;
   await waitFor(() => S.fed > fedBefore);
-  S.hint = false; S.drain = .03; S.maren.cold = false; S.maren.sit = true;
+  S.hint = false; S.drain = .016; S.maren.cold = false; S.maren.sit = true;
   await say('Ahh. That’s better.', 600);
   await say('I’m Maren. And you are?', 150);
   const name = await askName();
@@ -502,6 +502,7 @@ function startAudio(){
     const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
     noiseGain = ac.createGain(); noiseGain.gain.value = 0;
     src.connect(lp).connect(noiseGain).connect(ac.destination); src.start();
+    startAmbience();
     $('snd').classList.add('on');
   } catch(e){}
 }
@@ -513,7 +514,7 @@ function pop(strength){
   const hp = ac.createBiquadFilter(); hp.type='highpass'; hp.frequency.value = 1200 + Math.random()*2000;
   o.connect(hp).connect(g).connect(ac.destination); o.start(t);
 }
-$('snd').onclick = () => { muted = !muted; $('snd').textContent = muted ? 'Sound off' : 'Sound on'; };
+$('snd').onclick = () => { muted = !muted; $('snd').textContent = muted ? 'Sound off' : 'Sound on'; if (master) master.gain.setTargetAtTime(muted ? 0 : 1, ac.currentTime, .05); };
 
 /* ---------- play: fireflies to catch, eyes to keep back ---------- */
 const jarsOf = n => Math.min(4, Math.floor(n/25));
@@ -530,7 +531,7 @@ function catchFly(f){
   chime();
   const before = total(); S.total = before + 1; S.dirty = true;
   if (before === 0 && !S.told.fly){ S.told.fly = true; momentQueue.push('Fireflies. Catch enough and I’ll make you a lantern.'); }
-  if (jarsOf(S.total) > jarsOf(before)){ S.flash = .9; momentQueue.push(jarsOf(S.total) === 1 ? 'That’s a jar full. I’ll hang it by the fire.' : 'Another jar. Look how far the light reaches now.'); }
+  if (jarsOf(S.total) > jarsOf(before)){ S.flash = .9; arpeggio(); momentQueue.push(jarsOf(S.total) === 1 ? 'That’s a jar full. I’ll hang it by the fire.' : 'Another jar. Look how far the light reaches now.'); }
   drainMoments();
 }
 function updatePlay(dt, t, R){
@@ -541,20 +542,20 @@ function updatePlay(dt, t, R){
   hud.classList.toggle('on', !!n);
   if (S.dirty && t - S.savedAt > 2 && load()){ S.dirty = false; S.savedAt = t; saveMine({fireflies: S.total}); }
   // fireflies drift where it's dark
-  if (S.flies.length < 7 && t - S.flyAt > 1.4){
+  if (S.flies.length < 6 && t - S.flyAt > 2.2){
     S.flyAt = t;
     for (let tries=0; tries<6; tries++){
       const x = 24 + Math.random()*(W-48), y = horizon - 50*k + Math.random()*(H - horizon - 20*k);
-      if (Math.hypot(x-fire.x, y-fire.y) > R*.42){ S.flies.push({x, y, ph:Math.random()*9, age:0, max:9+Math.random()*6}); break; }
+      if (Math.hypot(x-fire.x, y-fire.y) > R*.42){ S.flies.push({x, y, ph:Math.random()*9, age:0, max:14+Math.random()*8}); break; }
     }
   }
   S.flies = S.flies.filter(f => (f.age += dt) < f.max);
-  S.flies.forEach(f => { f.x += Math.sin(t*.8 + f.ph)*22*k*dt; f.y += Math.cos(t*1.1 + f.ph*1.3)*14*k*dt; f.x = Math.max(10, Math.min(W-10, f.x)); });
+  S.flies.forEach(f => { f.x += Math.sin(t*.5 + f.ph)*14*k*dt; f.y += Math.cos(t*.7 + f.ph*1.3)*9*k*dt; f.x = Math.max(10, Math.min(W-10, f.x)); });
   // eyes come out of the forest; the light keeps them back
-  const low = S.fuel < .35;
-  if (S.eyes.length < (low ? 3 : 2) && t - S.eyeAt > (low ? 5 : 11)){
+  const low = S.fuel < .3;
+  if (S.eyes.length < (low ? 2 : 1) && t - S.eyeAt > (low ? 10 : 20)){
     S.eyeAt = t; const side = Math.random() < .5 ? -1 : 1;
-    S.eyes.push({x: side < 0 ? -16 : W+16, y: horizon + 40*k + Math.random()*(H - horizon - 90*k), flee:0, age:0, bl:Math.random()*5});
+    S.eyes.push({x: side < 0 ? -16 : W+16, y: horizon + 40*k + Math.random()*(H - horizon - 90*k), flee:0, age:0, bl:Math.random()*5}); rustle(side);
     if (!S.told.eyes){ S.told.eyes = true; momentQueue.push('Something’s watching from the trees. Keep the fire bright, or shoo them.'); drainMoments(); }
   }
   S.eyes = S.eyes.filter(e => {
@@ -562,7 +563,7 @@ function updatePlay(dt, t, R){
     const dx = fire.x - e.x, dy = fire.y - e.y, d = Math.hypot(dx, dy) || 1;
     if (e.flee){ e.flee += dt; e.x -= dx/d*240*k*dt; e.y -= dy/d*120*k*dt; return e.flee < 2.5; }
     const edge = R*.66;
-    if (d > edge + 8){ const v = (12 + 46*(1 - S.fuel))*k; e.x += dx/d*v*dt; e.y += dy/d*v*.6*dt; }
+    if (d > edge + 8){ const v = (7 + 20*(1 - S.fuel))*k; e.x += dx/d*v*dt; e.y += dy/d*v*.6*dt; }
     else if (d < edge - 8){ e.x -= dx/d*24*k*dt; e.y -= dy/d*14*k*dt; }
     if (S.fuel < .2 && d < edge + 14){
       e.flee = 1;
@@ -609,15 +610,114 @@ function drawPlay(t){
   }
 }
 
+/* ---------- atmosphere: wind, a slow warm pad, crickets or birds by the real clock, owl, Maren's murmur ---------- */
+let master = null;
+function noiseBuf(sec){ const len = ac.sampleRate*sec, b = ac.createBuffer(1, len, ac.sampleRate), d = b.getChannelData(0); for (let i=0;i<len;i++) d[i] = Math.random()*2-1; return b; }
+function out(node, pan){
+  if (ac.createStereoPanner){ const p = ac.createStereoPanner(); p.pan.value = pan ?? (Math.random()*1.6 - .8); node.connect(p).connect(master); }
+  else node.connect(master);
+}
+function startAmbience(){
+  if (!ac || master) return;
+  master = ac.createGain(); master.gain.value = muted ? 0 : 1; master.connect(ac.destination);
+  // wind through the spruces: band-passed noise that breathes
+  const w = ac.createBufferSource(); w.buffer = noiseBuf(4); w.loop = true;
+  const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 480; bp.Q.value = .6;
+  const wg = ac.createGain(); wg.gain.value = .03;
+  const l1 = ac.createOscillator(), g1 = ac.createGain(); l1.frequency.value = .06; g1.gain.value = .022; l1.connect(g1).connect(wg.gain);
+  const l2 = ac.createOscillator(), g2 = ac.createGain(); l2.frequency.value = .041; g2.gain.value = 220; l2.connect(g2).connect(bp.frequency);
+  w.connect(bp).connect(wg).connect(master); w.start(); l1.start(); l2.start();
+  playChord(); setInterval(() => { if (!document.hidden) playChord(); }, 9000);
+  setInterval(ambientTick, 250);
+}
+// A minor, F, C, G: low, slow, overlapping
+const CHORDS = [[220, 261.63, 329.63], [174.61, 220, 261.63], [196, 261.63, 329.63], [196, 246.94, 293.66]];
+let chordI = 0;
+function playChord(){
+  if (!master) return;
+  const t = ac.currentTime, ch = CHORDS[chordI++ % CHORDS.length];
+  const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 700;
+  const g = ac.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.05, t+3.5); g.gain.linearRampToValueAtTime(.04, t+8); g.gain.linearRampToValueAtTime(0, t+12.5);
+  lp.connect(g).connect(master);
+  ch.forEach(f => [-5, 5].forEach(det => { const o = ac.createOscillator(); o.type = 'triangle'; o.frequency.value = f/2; o.detune.value = det; o.connect(lp); o.start(t); o.stop(t+12.8); }));
+  // a single high note now and then, like a music box far away
+  if (Math.random() < .5){ const o = ac.createOscillator(), ng = ac.createGain(), n = ch[Math.floor(Math.random()*3)]*2, s = t + 2 + Math.random()*4;
+    o.type = 'sine'; o.frequency.value = n; ng.gain.setValueAtTime(0, s); ng.gain.linearRampToValueAtTime(.022, s+.02); ng.gain.exponentialRampToValueAtTime(.0001, s+2.5);
+    o.connect(ng); out(ng, Math.random()*.8-.4); o.start(s); o.stop(s+2.6); }
+}
+function ambientTick(){
+  if (!master || document.hidden || !S.lit) return;
+  const h = new Date().getHours(), night = h >= 19 || h < 6, dawn = h >= 5 && h < 10;
+  if (night && Math.random() < .2) crickets();
+  if (night && Math.random() < .004) owl();
+  if (!night && Math.random() < (dawn ? .07 : .03)) bird();
+}
+function crickets(){
+  const t = ac.currentTime + .02, o = ac.createOscillator(), g = ac.createGain(), n = 2 + Math.floor(Math.random()*3);
+  o.frequency.value = 4300 + Math.random()*900; g.gain.value = 0;
+  for (let i=0;i<n;i++){ const s = t + i*.075; g.gain.setValueAtTime(0, s); g.gain.linearRampToValueAtTime(.011, s+.012); g.gain.linearRampToValueAtTime(0, s+.045); }
+  o.connect(g); out(g); o.start(t); o.stop(t + n*.075 + .1);
+}
+function owl(){
+  const t = ac.currentTime + .05, pan = Math.random()*1.4 - .7;
+  [[0, .5], [.7, .35], [1.15, .8]].forEach(([d, len]) => {
+    const o = ac.createOscillator(), g = ac.createGain(), lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 700;
+    o.frequency.setValueAtTime(395, t+d); o.frequency.linearRampToValueAtTime(350, t+d+len);
+    g.gain.setValueAtTime(0, t+d); g.gain.linearRampToValueAtTime(.04, t+d+.08); g.gain.linearRampToValueAtTime(0, t+d+len);
+    o.connect(lp).connect(g); out(g, pan); o.start(t+d); o.stop(t+d+len+.05);
+  });
+}
+function bird(){
+  const t = ac.currentTime + .02, n = 2 + Math.floor(Math.random()*4), base = 2200 + Math.random()*1800, o = ac.createOscillator(), g = ac.createGain();
+  g.gain.value = 0;
+  for (let i=0;i<n;i++){ const s = t + i*.13; o.frequency.setValueAtTime(base, s); o.frequency.exponentialRampToValueAtTime(base*(1.3 + Math.random()*.5), s+.08);
+    g.gain.setValueAtTime(0, s); g.gain.linearRampToValueAtTime(.02, s+.015); g.gain.linearRampToValueAtTime(0, s+.09); }
+  o.connect(g); out(g); o.start(t); o.stop(t + n*.13 + .1);
+}
+// Maren's voice: soft wordless murmur, one blip per letter pair
+function blip(ch){
+  if (!master || muted) return;
+  const t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain(), lp = ac.createBiquadFilter(), c = ch.toLowerCase().charCodeAt(0);
+  lp.type = 'lowpass'; lp.frequency.value = 1100; o.type = 'triangle'; o.frequency.value = 185 + ((c*37) % 9)*13;
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.06, t+.01); g.gain.exponentialRampToValueAtTime(.0001, t+.08);
+  o.connect(lp).connect(g).connect(master); o.start(t); o.stop(t+.09);
+}
+function whoosh(){
+  if (!master) return;
+  const t = ac.currentTime, s = ac.createBufferSource(), bp = ac.createBiquadFilter(), g = ac.createGain();
+  s.buffer = noiseBuf(.8); bp.type = 'bandpass'; bp.Q.value = 1.2; bp.frequency.setValueAtTime(250, t); bp.frequency.exponentialRampToValueAtTime(1800, t+.45);
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.16, t+.08); g.gain.exponentialRampToValueAtTime(.0001, t+.7);
+  s.connect(bp).connect(g).connect(master); s.start(t); s.stop(t+.8);
+}
+function rustle(side){
+  if (!master) return;
+  const t = ac.currentTime;
+  for (let i=0;i<3;i++){
+    const s = ac.createBufferSource(), lp = ac.createBiquadFilter(), g = ac.createGain(), st = t + i*.09 + Math.random()*.05;
+    s.buffer = noiseBuf(.25); lp.type = 'lowpass'; lp.frequency.value = 700 + Math.random()*500;
+    g.gain.setValueAtTime(0, st); g.gain.linearRampToValueAtTime(.09, st+.02); g.gain.exponentialRampToValueAtTime(.0001, st+.18);
+    s.connect(lp).connect(g); out(g, side < 0 ? -.8 : .8); s.start(st); s.stop(st+.25);
+  }
+}
+function arpeggio(){
+  if (!master) return;
+  const t = ac.currentTime;
+  [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => { const o = ac.createOscillator(), g = ac.createGain(), s = t + i*.12;
+    o.type = 'triangle'; o.frequency.value = f; g.gain.setValueAtTime(0, s); g.gain.linearRampToValueAtTime(.06, s+.02); g.gain.exponentialRampToValueAtTime(.0001, s+.9);
+    o.connect(g).connect(master); o.start(s); o.stop(s+1); });
+}
+document.addEventListener('visibilitychange', () => { if (!ac) return; try { document.hidden ? ac.suspend() : ac.resume(); } catch (e) {} });
+
 /* ---------- input ---------- */
 function pt(e){ return {x:e.clientX, y:e.clientY}; }
 cv.addEventListener('pointerdown', e => {
   const p = pt(e);
   skipReq = true;
-  if (!S.lit){ S.lit = true; S.stage = 'world'; S.fuel = .55; S.flash = 1; burst(fire.x, fire.y-6, 26); startAudio(); for(let i=0;i<3;i++) addStick(); return; }
+  if (ac && ac.state === 'suspended') { try { ac.resume(); } catch (e) {} }
+  if (!S.lit){ S.lit = true; S.stage = 'world'; S.fuel = .55; S.flash = 1; burst(fire.x, fire.y-6, 26); startAudio(); whoosh(); for(let i=0;i<3;i++) addStick(); return; }
   if (S.free){
     const eye = S.eyes.find(e => !e.flee && Math.hypot(e.x-p.x, e.y-p.y) < 40*k);
-    if (eye){ eye.flee = 1; pop(.8); return; }
+    if (eye){ eye.flee = 1; rustle(eye.x < fire.x ? -1 : 1); pop(.8); return; }
     const fly = S.flies.find(f => Math.hypot(f.x-p.x, f.y-p.y) < 36*k);
     if (fly){ catchFly(fly); return; }
   }
@@ -637,8 +737,8 @@ const drop = () => {
   const s = S.drag; if (!s) return; S.drag = null; cv.style.cursor = 'default';
   if (Math.hypot(s.x-fire.x, s.y-(fire.y-8*k)) < 62*k){
     S.sticks.splice(S.sticks.indexOf(s), 1);
-    S.fuel = Math.min(1, S.fuel + .45); S.fed++; S.flash = .8; burst(fire.x, fire.y-10*k, 34); pop(1.4);
-    const t = token; setTimeout(() => { if (t===token) addStick(); }, 3000);
+    S.fuel = Math.min(1, S.fuel + .45); S.fed++; S.flash = .8; burst(fire.x, fire.y-10*k, 34); pop(1.4); whoosh();
+    const t = token; setTimeout(() => { if (t===token) addStick(); }, 4000);
   } else placeStick(s);
 };
 cv.addEventListener('pointerup', drop); cv.addEventListener('pointercancel', drop);
@@ -729,7 +829,7 @@ function frame(now){
   S.fuel = Math.max(.14, S.fuel - S.drain*dt);
   S.flash = Math.max(0, S.flash - dt*1.6); S.puff = Math.max(0, S.puff - dt*.8);
   const m = S.maren;
-  if (m.on && m.walk){ m.x += 95*k*dt; m.y = seat.y; if (m.x >= seat.x){ m.x = seat.x; m.walk = false; } }
+  if (m.on && m.walk){ m.x += 70*k*dt; m.y = seat.y; if (m.x >= seat.x){ m.x = seat.x; m.walk = false; } }
   else if (m.on){ m.x = seat.x; m.y = seat.y; }
   const fsz = (.35 + .65*S.fuel)*k;
   const spawn = (reduce ? 1.2 : 4) * (.4 + S.fuel);
