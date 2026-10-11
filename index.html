@@ -147,10 +147,54 @@ function merge(id, data){
   saveWorld(w); return true;
 }
 function broadcast(msg){ for (const c of net.conns.values()) if (c.open) { try { c.send(msg); } catch (e) {} } }
+const RELAY = 'https://ntfy.sh/';
+net.relaySeen = {};
+const relayTopic = () => 'ember-world-' + net.code;
+const okId = id => typeof id === 'string' && /^[a-z0-9-]{1,40}$/.test(id);
+function relayPublish(id, data){
+  if (!net.code || !okId(id) || !data) return;
+  net.relaySeen[id] = Math.max(net.relaySeen[id] || 0, data.updatedAt || 0);
+  try { fetch(RELAY + relayTopic(), {method: 'POST', body: JSON.stringify({id, data})}).catch(() => {}); } catch (e) {}
+}
+async function relayPull(){
+  try {
+    const ctl = new AbortController(); setTimeout(() => ctl.abort(), 6000);
+    const txt = await fetch(RELAY + relayTopic() + '/json?poll=1&since=all', {signal: ctl.signal}).then(r => r.text());
+    let changed = false;
+    txt.split('\n').forEach(line => {
+      if (!line.trim()) return;
+      try { const m = JSON.parse(line); if (m.event !== 'message') return; const d = JSON.parse(m.message);
+        if (!okId(d.id) || !d.data) return;
+        net.relaySeen[d.id] = Math.max(net.relaySeen[d.id] || 0, d.data.updatedAt || 0);
+        changed = merge(d.id, d.data) || changed; } catch (e) {}
+    });
+    if (changed) refreshOthers();
+  } catch (e) {}
+}
+function relayPushAll(){
+  let n = 0;
+  for (const [id, d] of Object.entries(world().players)){
+    if (!d || (net.relaySeen[id] || 0) >= (d.updatedAt || 0)) continue;
+    if (n++ >= 10) break;
+    relayPublish(id, d);
+  }
+}
+function relayListen(){
+  try {
+    const es = new EventSource(RELAY + relayTopic() + '/sse');
+    es.onmessage = ev => {
+      try { const m = JSON.parse(ev.data); if (m.event !== 'message') return; const d = JSON.parse(m.message);
+        if (!okId(d.id) || !d.data) return;
+        net.relaySeen[d.id] = Math.max(net.relaySeen[d.id] || 0, d.data.updatedAt || 0);
+        const before = world().players[d.id];
+        if (merge(d.id, d.data)){ refreshOthers(); liveMoment(d.id, before, world().players[d.id]); } } catch (e) {}
+    };
+  } catch (e) {}
+}
 function connect(){
-  if (!window.Peer) return;
   net.code = familyCode();
-  claim(1);
+  net.pulled = relayPull().then(() => { relayPushAll(); relayListen(); });
+  if (window.Peer) claim(1);
 }
 function peerOpts(){ const ps = new URL(location.href).searchParams.get('ps'); return ps ? {host: ps.split(':')[0], port: +ps.split(':')[1] || 9000, path:'/', secure:false, debug:0} : {debug:0}; }
 function claim(slot){
@@ -194,9 +238,9 @@ function onData(c, d){
 }
 function saveMine(patch){
   const cur = load() || {}; const next = {...cur, ...patch, updatedAt: Date.now()}; store(next);
-  broadcast({type:'fire', id: me, data: next});
+  broadcast({type:'fire', id: me, data: next}); relayPublish(me, next);
 }
-function forgetMine(){ store(null); broadcast({type:'fire', id: me, data: world().players[me]}); }
+function forgetMine(){ store(null); broadcast({type:'fire', id: me, data: world().players[me]}); relayPublish(me, world().players[me]); }
 function announceMe(){ broadcast({type:'me', me}); }
 /* something happened on another phone just now */
 let momentQueue = [];
@@ -247,8 +291,9 @@ const hashf = (s, salt) => { let h = 2166136261 ^ salt; for (let i=0;i<s.length;
 /* ---------- world geometry ---------- */
 let W, H, k, horizon, fire, seat, plantAt, trees = [], backTrees = [], stars = [], tufts = [], fires = [];
 function rng(a){return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+let DPR = 1;
 function layout(){
-  const d = Math.min(2, devicePixelRatio || 1);
+  const d = DPR = Math.min(2, devicePixelRatio || 1);
   W = innerWidth; H = innerHeight;
   cv.width = W*d; cv.height = H*d; ctx.setTransform(d,0,0,d,0,0);
   k = Math.max(.8, Math.min(1.4, Math.min(W, H)/640));
@@ -302,7 +347,7 @@ function fresh(){
     maren:{x:-60,y:0,on:false,walk:false,sit:false,cold:false},
     sticks:[], drag:null, fed:0, hintAt:0, hint:false, hill:null, free:false, visiting:null,
     plant:null, puff:0, flames:[], sparks:[], flash:0,
-    flies:[], eyes:[], flyAt:0, eyeAt:0, total:null, dirty:false, savedAt:0, told:{}};
+    flies:[], eyes:[], swarm:[], boom:0, shake:0, litAt:null, charging:false, chargeAt:0, flyAt:0, eyeAt:0, total:null, dirty:false, savedAt:0, told:{}};
 }
 function placeStick(s){ s.x = fire.x + s.ox*k; s.y = fire.y + s.oy*k; }
 function addStick(){
@@ -318,14 +363,17 @@ function addStick(){
 const sleep = ms => { const t = token; return new Promise((res, rej) => setTimeout(() => t===token ? res() : rej('reset'), ms)); };
 const waitFor = fn => { const t = token; return new Promise((res, rej) => { const i = setInterval(() => { if (t!==token){clearInterval(i);rej('reset')} else if (fn()){clearInterval(i);res()} }, 80); }); };
 let skipReq = false;  // a tap anywhere finishes the line, a second tap moves on
+let sayN = 0;
 async function say(text, hold, who){
+  const my = ++sayN;
   $('who').textContent = who || 'Maren';
   talk.classList.add('on'); talkText.textContent = ''; skipReq = false;
   if (reduce) talkText.textContent = text;
-  else for (let i=1;i<=text.length;i++){ if (skipReq) break; talkText.textContent = text.slice(0,i); if (i % 2 === 0 && /[a-zA-Z\u00c0-\u017f]/.test(text[i-1])) blip(text[i-1]); await sleep(24); }
+  else for (let i=1;i<=text.length;i++){ if (skipReq || my !== sayN) break; talkText.textContent = text.slice(0,i); if (i % 2 === 0 && /[a-zA-Z\u00c0-\u017f]/.test(text[i-1])) blip(text[i-1]); await sleep(24); }
+  if (my !== sayN) return;
   talkText.textContent = text; skipReq = false;
   const h = ((hold ?? 700 + text.length*24) + 500 + text.length*15)/1000, t0 = S.t;
-  await waitFor(() => skipReq || S.t - t0 >= h); skipReq = false;
+  await waitFor(() => skipReq || my !== sayN || S.t - t0 >= h); if (my === sayN) skipReq = false;
 }
 const hush = () => talk.classList.remove('on');
 function askName(){
@@ -369,7 +417,8 @@ const plantStage = (plantedAt) => { const days = Math.max(0, dayDiff(plantedAt, 
 /* ---------- the first minute ---------- */
 async function run(){
   me = null; refreshOthers();
-  if (!allPlayers().length && net.joined) await Promise.race([waitFor(() => allPlayers().length), sleep(5000)]);
+  await Promise.race([net.pulled || Promise.resolve(), sleep(4000)]);
+  if (!allPlayers().length && net.joined) await Promise.race([waitFor(() => allPlayers().length), sleep(2500)]);
   if (allPlayers().length){ me = await askWho(); refreshOthers(); announceMe(); }
   await waitFor(() => S.lit);
   const saved = load();
@@ -383,6 +432,7 @@ async function run(){
   await say('May I sit?', 300);
   S.drain = .09; S.hint = true; S.hintAt = S.t;
   const fedBefore = S.fed;
+  (async () => { try { await sleep(6000); if (S.fed === fedBefore) await say('Could you put a stick on? Just tap one.', 400); } catch (e) {} })();
   await waitFor(() => S.fed > fedBefore);
   S.hint = false; S.drain = .016; S.maren.cold = false; S.maren.sit = true;
   await say('Ahh. That’s better.', 600);
@@ -737,16 +787,16 @@ cv.addEventListener('pointerdown', e => {
   const p = pt(e);
   skipReq = true;
   if (ac && ac.state === 'suspended') { try { ac.resume(); } catch (e) {} }
-  if (!S.lit){ S.lit = true; S.stage = 'world'; S.fuel = .55; S.flash = 1; burst(fire.x, fire.y-6, 26); startAudio(); whoosh(); for(let i=0;i<3;i++) addStick(); return; }
+  if (!S.lit){ S.charging = true; S.chargeAt = S.t; return; }
   if (S.free){
     const eye = S.eyes.find(e => !e.flee && Math.hypot(e.x-p.x, e.y-p.y) < 40*k);
     if (eye){ eye.flee = 1; rustle(eye.x < fire.x ? -1 : 1); pop(.8); return; }
     const fly = S.flies.find(f => Math.hypot(f.x-p.x, f.y-p.y) < 36*k);
     if (fly){ catchFly(fly); return; }
   }
-  let best = null, bd = 44*k;
-  for (const s of S.sticks){ const dd = Math.hypot(s.x-p.x, s.y-p.y); if (dd < bd){ bd = dd; best = s; } }
-  if (best){ S.drag = best; best.gx = p.x - best.x; best.gy = p.y - best.y; cv.setPointerCapture(e.pointerId); cv.style.cursor = 'grabbing'; return; }
+  let best = null, bd = 62*k;
+  for (const s of S.sticks){ if (s.flying) continue; const dd = Math.hypot(s.x-p.x, s.y-p.y); if (dd < bd){ bd = dd; best = s; } }
+  if (best){ best.sx0 = best.x; best.sy0 = best.y; best.downT = S.t; S.drag = best; best.gx = p.x - best.x; best.gy = p.y - best.y; try { cv.setPointerCapture(e.pointerId); } catch (err) {} cv.style.cursor = 'grabbing'; return; }
   if (S.free && !S.visiting){ const f = fires.find(f => Math.hypot(f.x-p.x, f.y-p.y) < 34*k); if (f) visit(f); }
 });
 cv.addEventListener('pointermove', e => {
@@ -758,13 +808,67 @@ cv.addEventListener('pointermove', e => {
 });
 const drop = () => {
   const s = S.drag; if (!s) return; S.drag = null; cv.style.cursor = 'default';
-  if (Math.hypot(s.x-fire.x, s.y-(fire.y-8*k)) < 62*k){
-    S.sticks.splice(S.sticks.indexOf(s), 1);
-    S.fuel = Math.min(1, S.fuel + .45); S.fed++; S.flash = .8; burst(fire.x, fire.y-10*k, 34); pop(1.4); whoosh();
-    const t = token; setTimeout(() => { if (t===token) addStick(); }, 4000);
-  } else placeStick(s);
+  const tapped = Math.hypot(s.x - s.sx0, s.y - s.sy0) < 14*k && S.t - s.downT < .6;
+  if (Math.hypot(s.x-fire.x, s.y-(fire.y-8*k)) < 80*k) feedStick(s);
+  else if (tapped){ s.flying = {t:0, x0:s.x, y0:s.y}; }   // a tap throws it in
+  else placeStick(s);
 };
+function feedStick(s){
+  const i = S.sticks.indexOf(s); if (i < 0) return; S.sticks.splice(i, 1);
+  S.fuel = Math.min(1, S.fuel + .45); S.fed++; S.flash = .8; burst(fire.x, fire.y-10*k, 34); pop(1.4); whoosh();
+  const t = token; setTimeout(() => { if (t===token) addStick(); }, 4000);
+}
+cv.addEventListener('pointerup', () => { if (!S.lit && S.charging) ignite(); });
 cv.addEventListener('pointerup', drop); cv.addEventListener('pointercancel', drop);
+
+/* ---------- the ignition ---------- */
+function ignite(){
+  const c = Math.min(1, (S.t - S.chargeAt)/1.1);
+  S.charging = false; S.lit = true; S.stage = 'world'; S.fuel = 1; S.flash = 1.5; S.boom = 1; S.shake = .8 + .4*c; S.litAt = S.t;
+  burst(fire.x, fire.y - 6, 110 + 80*c);
+  for (let i=0;i<40;i++){ const a = Math.random()*Math.PI*2, v = 120 + Math.random()*260; S.sparks.push({x:fire.x, y:fire.y-6, vx:Math.cos(a)*v, vy:Math.sin(a)*v*.6 - 80, life:1+Math.random(), max:2}); }
+  for (let i=0;i<3;i++) addStick();
+  for (let i=0;i<30;i++){ const left = Math.random() < .5;
+    S.swarm.push({x: left ? Math.random()*W*.2 : W - Math.random()*W*.2, y: horizon + Math.random()*(H - horizon)*.85, vx: (left ? 1 : -1)*(8 + Math.random()*30)*k, vy: -(25 + Math.random()*60)*k, ph: Math.random()*9, age: -Math.random()*.8, max: 3 + Math.random()*3}); }
+  startAudio(); unlockAudio(); whoosh(); boomSound();
+}
+function boomSound(){
+  if (!ac) return;
+  try {
+    const t = ac.currentTime, dest = master || ac.destination;
+    const o = ac.createOscillator(), g = ac.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(32, t+1.2);
+    g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.5, t+.03); g.gain.exponentialRampToValueAtTime(.0001, t+1.6); o.connect(g).connect(dest); o.start(t); o.stop(t+1.7);
+    [220, 277.18, 329.63, 440, 554.37, 659.25].forEach((f, i) => { const os = ac.createOscillator(), gs = ac.createGain(), s0 = t + .15 + i*.09;
+      os.type = 'triangle'; os.frequency.value = f; gs.gain.setValueAtTime(0, s0); gs.gain.linearRampToValueAtTime(.05, s0+.08); gs.gain.exponentialRampToValueAtTime(.0001, s0+2.8);
+      os.connect(gs).connect(dest); os.start(s0); os.stop(s0+3); });
+  } catch (e) {}
+}
+function drawIntro(t, dt){
+  if (S.boom > 0){
+    const pr = 1 - S.boom, r = 20*k + pr*Math.hypot(W, H)*.95;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = `rgba(255,205,140,${S.boom*.75})`; ctx.lineWidth = (2 + 14*S.boom)*k; ctx.beginPath(); ctx.arc(fire.x, fire.y - 10*k, r, 0, 7); ctx.stroke();
+    ctx.strokeStyle = `rgba(255,140,60,${S.boom*.4})`; ctx.lineWidth = (1 + 6*S.boom)*k; ctx.beginPath(); ctx.arc(fire.x, fire.y - 10*k, r*.7, 0, 7); ctx.stroke();
+    ctx.globalCompositeOperation = 'source-over';
+    S.boom = Math.max(0, S.boom - dt*.85);
+  }
+  if (S.flash > 1){ ctx.fillStyle = `rgba(255,236,205,${Math.min(1, (S.flash - 1)*1.5)})`; ctx.fillRect(0, 0, W, H); }
+  S.swarm = S.swarm.filter(f => (f.age += dt) < f.max);
+  ctx.globalCompositeOperation = 'lighter';
+  S.swarm.forEach(f => { if (f.age < 0) return; f.x += f.vx*dt + Math.sin(t*3 + f.ph)*24*k*dt; f.y += f.vy*dt;
+    const a = Math.max(0, Math.min(1, f.age/.4, (f.max - f.age)/.9)*(.6 + .4*Math.sin(t*7 + f.ph)));
+    const g = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, 14*k); g.addColorStop(0, `rgba(220,255,130,${.65*a})`); g.addColorStop(1, 'rgba(160,255,80,0)');
+    ctx.fillStyle = g; ctx.fillRect(f.x - 14*k, f.y - 14*k, 28*k, 28*k);
+    ctx.fillStyle = `rgba(250,255,210,${a})`; ctx.fillRect(f.x - k, f.y - k, 2.2*k, 2.2*k); });
+  ctx.globalCompositeOperation = 'source-over';
+  const since = S.litAt == null ? 99 : S.t - S.litAt;
+  if (since > .6 && since < 5.2){
+    const a = Math.max(0, Math.min(1, (since - .6)/1.1, (5.2 - since)/1.2)), fs = Math.min(W*.22, 104);
+    ctx.save(); ctx.font = `400 ${fs}px "IM Fell English", Georgia, serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = `rgba(255,130,40,${a})`; ctx.shadowBlur = 40*k; ctx.fillStyle = `rgba(255,230,190,${a})`;
+    ctx.fillText('Ember', W/2, horizon*.4 + (1 - a)*10*k); ctx.restore();
+  }
+}
 
 /* ---------- particles ---------- */
 function burst(x,y,n){ for(let i=0;i<(reduce?n/3:n);i++){ const a = -Math.PI/2 + (Math.random()-.5)*2.2, v = 60+Math.random()*170; S.sparks.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:.6+Math.random()*.9,max:1.5}); } }
@@ -837,18 +941,32 @@ function frame(now){
   ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
 
   if (!S.lit){
-    ctx.fillStyle = '#000'; ctx.fillRect(0,0,W,H);
-    const p = .5 + .5*Math.sin(t*2.2);
-    const g = ctx.createRadialGradient(fire.x, fire.y, 0, fire.x, fire.y, (40+20*p)*k);
-    g.addColorStop(0, `rgba(255,170,80,${.55+.3*p})`); g.addColorStop(.25, `rgba(230,80,30,${.25+.15*p})`); g.addColorStop(1, 'rgba(120,20,0,0)');
-    ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
-    ctx.fillStyle = `rgb(255,${190+40*p},${120+60*p})`; ctx.beginPath(); ctx.arc(fire.x, fire.y, (3+1.2*p)*k, 0, 7); ctx.fill();
-    if (t > 4){ const r = ((t-4)%2.4)/2.4; ctx.strokeStyle = `rgba(255,170,80,${.35*(1-r)})`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(fire.x, fire.y, (14+50*r)*k, 0, 7); ctx.stroke(); }
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    const ch = S.charging ? Math.min(1, (S.t - S.chargeAt)/1.1) : 0;
+    const p = .5 + .5*Math.sin(t*(2.2 + ch*14));
+    const jx = ch ? (Math.random() - .5)*ch*4*k : 0, jy = ch ? (Math.random() - .5)*ch*4*k : 0, ex = fire.x + jx, ey = fire.y + jy;
+    const g = ctx.createRadialGradient(ex, ey, 0, ex, ey, (40 + 20*p + ch*120)*k);
+    g.addColorStop(0, `rgba(255,${170 + ch*60},${80 + ch*80},${.55 + .3*p + ch*.15})`); g.addColorStop(.25, `rgba(230,80,30,${.25 + .15*p + ch*.25})`); g.addColorStop(1, 'rgba(120,20,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i=0;i<16;i++){
+      const a = t*(.5 + i*.04)*(1 + ch*4) + i*2.4, rr = (55 + 45*Math.sin(t*.6 + i))*k*(1 - ch*.85);
+      const mx = ex + Math.cos(a)*rr, my = ey + Math.sin(a)*rr*.62, al = .2 + .4*Math.pow(Math.sin(t*2.5 + i), 2) + ch*.4;
+      ctx.fillStyle = `rgba(255,${160 + i*5},90,${Math.min(1, al)})`; ctx.beginPath(); ctx.arc(mx, my, (1 + ch)*k, 0, 7); ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = `rgb(255,${190 + 40*p + ch*25},${120 + 60*p + ch*60})`; ctx.beginPath(); ctx.arc(ex, ey, (3 + 1.2*p + ch*5)*k, 0, 7); ctx.fill();
+    if (t > 3 && !S.charging){ const r = ((t - 3)%2.4)/2.4; ctx.strokeStyle = `rgba(255,170,80,${.35*(1 - r)})`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(fire.x, fire.y, (14 + 50*r)*k, 0, 7); ctx.stroke(); }
     requestAnimationFrame(frame); return;
   }
 
+  /* camera shake right after ignition */
+  if (S.shake > 0){ const sh = S.shake*S.shake*9*k; ctx.setTransform(DPR, 0, 0, DPR, (Math.random() - .5)*sh*DPR, (Math.random() - .5)*sh*DPR); S.shake = Math.max(0, S.shake - dt*1.4); }
+  else ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
   /* simulate */
-  S.reveal = Math.min(1, S.reveal + dt/3.6);
+  S.reveal = Math.min(1, S.reveal + dt/2.2);
   S.fuel = Math.max(.14, S.fuel - S.drain*dt);
   S.flash = Math.max(0, S.flash - dt*1.6); S.puff = Math.max(0, S.puff - dt*.8);
   const m = S.maren;
@@ -878,6 +996,8 @@ function frame(now){
   const things = [];
   if (S.plant) things.push({y: plantAt.y, d: () => drawPlant(S.plant, t)});
   if (m.on) things.push({y: m.y, d: () => drawMaren(m, t)});
+  S.sticks.slice().forEach(s => { if (!s.flying) return; const f = s.flying; f.t = Math.min(1, f.t + dt*2.6); const e = f.t*f.t*(3-2*f.t);
+    s.x = f.x0 + (fire.x - f.x0)*e; s.y = f.y0 + (fire.y - 8*k - f.y0)*e - Math.sin(e*Math.PI)*70*k; s.a += dt*9; if (f.t >= 1) feedStick(s); });
   S.sticks.forEach(s => { if (s !== S.drag) things.push({y: s.y, d: () => drawStick(s, S.hint ? .25 + .25*Math.sin(t*4) : .08 + .06*Math.sin(t*2 + s.spot)) }); });
   things.sort((a,b) => a.y - b.y).forEach(o => o.d());
 
@@ -930,7 +1050,7 @@ function frame(now){
   if (S.puff > 0){ ctx.fillStyle = `rgba(200,170,130,${S.puff*.25})`; ctx.beginPath(); ctx.arc(plantAt.x, plantAt.y-4*k, (30 - 20*S.puff)*k, 0, 7); ctx.fill(); }
   ctx.globalCompositeOperation = 'source-over';
 
-  updatePlay(dt, t, R); drawPlay(t);
+  updatePlay(dt, t, R); drawPlay(t); drawIntro(t, dt);
 
   if (S.drag){ drawStick(S.drag, .35); const dd = Math.hypot(S.drag.x-fire.x, S.drag.y-fire.y); if (dd < 62*k){ ctx.strokeStyle = 'rgba(255,190,110,.5)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(fire.x, fire.y-8*k, 40*k, 0, 7); ctx.stroke(); } }
 
