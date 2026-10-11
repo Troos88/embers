@@ -58,7 +58,18 @@ button:focus-visible,.ask input:focus-visible{outline:2px solid var(--ink);outli
 #snd.on{opacity:.7;pointer-events:auto}
 #hud{position:fixed;top:calc(15px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);font:600 12px var(--f-ui);letter-spacing:.1em;text-transform:uppercase;color:#d9f27a;opacity:0;transition:opacity .8s;pointer-events:none;text-shadow:0 0 10px rgba(200,255,120,.5),0 1px 4px #000;white-space:nowrap;font-variant-numeric:tabular-nums}
 #hud.on{opacity:.9}
-#aside{position:fixed;top:calc(100px + env(safe-area-inset-top,0px));left:16px;right:16px;max-width:460px;margin:0 auto;text-align:center;pointer-events:none;opacity:0;transform:translateY(-4px);transition:opacity .5s,transform .5s}
+#hud{display:none!important}
+#ridgeHint{display:none!important}
+#goal{position:fixed;top:calc(42px + env(safe-area-inset-top,0px));left:16px;right:16px;text-align:center;pointer-events:none;opacity:0;transition:opacity .4s}
+#goal.on{opacity:1}
+#goalText{font:600 clamp(15px,4vw,17px)/1.3 var(--f-ui);color:var(--ink);text-shadow:0 1px 8px #000,0 0 2px #000;text-wrap:balance}
+#goal.urgent #goalText{color:#ffb070}
+.meterRow{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px;font:600 10px var(--f-ui);letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
+.meterRow[hidden]{display:none!important}
+.meter{width:130px;height:6px;border-radius:3px;background:rgba(255,255,255,.14);overflow:hidden}
+.meter i{display:block;height:100%;width:50%;border-radius:3px;background:linear-gradient(90deg,#ff6a2a,#ffc46b);transition:width .3s}
+#goal.urgent .meter i{background:#ff5a2a}
+#aside{position:fixed;top:calc(108px + env(safe-area-inset-top,0px));left:16px;right:16px;max-width:460px;margin:0 auto;text-align:center;pointer-events:none;opacity:0;transform:translateY(-4px);transition:opacity .5s,transform .5s}
 #aside.on{opacity:1;transform:none}
 #aside .who{display:block;font:600 10px/1 var(--f-ui);letter-spacing:.2em;text-transform:uppercase;color:var(--ember);margin-bottom:6px;opacity:.85}
 #asideText{font:italic 400 clamp(17px,4.4vw,21px)/1.35 var(--f-voice);color:var(--ink);text-shadow:0 2px 12px #000,0 0 2px #000;text-wrap:balance}
@@ -74,6 +85,7 @@ button:focus-visible,.ask input:focus-visible{outline:2px solid var(--ink);outli
 <canvas id="c" aria-label="Ember: a small clearing at the edge of a forest. Tap to light the ember."></canvas>
 <div id="ridgeHint"></div>
 <div id="hud" aria-live="polite"></div>
+<div id="goal" aria-live="polite"><div id="goalText"></div><div class="meterRow" id="meterRow"><span>Fire</span><div class="meter"><i id="meterFill"></i></div></div></div>
 <div id="aside" aria-live="polite"><span class="who">Maren</span><span id="asideText"></span></div>
 <div id="talk" aria-live="polite"><span class="who" id="who">Maren</span><div id="talkText"></div></div>
 <div class="ask" id="whoAsk"></div>
@@ -104,7 +116,7 @@ button:focus-visible,.ask input:focus-visible{outline:2px solid var(--ink);outli
   <div id="footLine"></div>
   <div id="tools">
     <button class="link" id="noteBtn" type="button">Leave a note</button>
-    <button class="link" id="swapBtn" type="button">Someone else's turn</button>
+    <button class="link" id="swapBtn" type="button">Switch player</button>
     <button class="link" id="skipDay" type="button">Skip ahead a day</button>
     <button class="link" id="again" type="button">Start over</button>
   </div>
@@ -347,7 +359,7 @@ function fresh(){
     maren:{x:-60,y:0,on:false,walk:false,sit:false,cold:false},
     sticks:[], drag:null, fed:0, hintAt:0, hint:false, hill:null, free:false, visiting:null,
     plant:null, puff:0, flames:[], sparks:[], flash:0,
-    flies:[], eyes:[], swarm:[], boom:0, shake:0, litAt:null, charging:false, chargeAt:0, flyAt:0, eyeAt:0, total:null, dirty:false, savedAt:0, told:{}};
+    flies:[], eyes:[], swarm:[], taught:{}, boom:0, shake:0, litAt:null, charging:false, chargeAt:0, flyAt:0, eyeAt:0, total:null, dirty:false, savedAt:0, told:{}};
 }
 function placeStick(s){ s.x = fire.x + s.ox*k; s.y = fire.y + s.oy*k; }
 function addStick(){
@@ -540,7 +552,7 @@ $('noteBtn').onclick = async () => {
 
 function restart(){
   token++; S = fresh(); hush();
-  foot.classList.remove('on'); $('ridgeHint').classList.remove('on'); $('aside').classList.remove('on'); momentQueue = [];
+  foot.classList.remove('on'); $('ridgeHint').classList.remove('on'); $('aside').classList.remove('on'); $('goal').classList.remove('on'); momentQueue = [];
   ['whoAsk','nameAsk','seedAsk','textAsk','visitAsk'].forEach(id=>$(id).classList.remove('on'));
   $('again').textContent = 'Start over'; armed = false;
   run().catch(()=>{});
@@ -551,6 +563,7 @@ $('again').onclick = async () => {
   await forgetMine(); restart();
 };
 $('swapBtn').onclick = () => restart();
+if (!/[?&]dev=1/.test(location.search)) $('skipDay').hidden = true;
 $('skipDay').onclick = () => { const s = load(); if (!s) return; s.plantedAt -= DAY; s.lastSeen = (s.lastSeen||Date.now()) - DAY; saveMine(s); restart(); };
 
 /* ---------- sound: a soft crackle that follows the fire ---------- */
@@ -781,6 +794,36 @@ function arpeggio(){
 }
 document.addEventListener('visibilitychange', () => { if (!ac) return; try { document.hidden ? ac.suspend() : ac.resume(); } catch (e) {} });
 
+/* ---------- always say what to do next ---------- */
+let goalKey = '';
+function nearestStick(){ let b = null, bd = 1e9; S.sticks.forEach(s => { if (s.flying || s === S.drag) return; const d = Math.hypot(s.x - fire.x, s.y - fire.y); if (d < bd){ bd = d; b = s; } }); return b; }
+function goalNow(R){
+  if (!S.lit) return null;
+  if (S.hint) return {text: 'Tap a stick to feed the fire', target: nearestStick(), urgent: true, meter: true};
+  if (!S.free) return null;
+  if (S.visiting) return {text: '', meter: true};
+  if (S.fuel < .33 && nearestStick()) return {text: 'Your fire is going out! Tap a stick', target: nearestStick(), urgent: true, meter: true};
+  const near = S.eyes.filter(e => !e.flee && e.age > 1 && Math.hypot(e.x - fire.x, e.y - fire.y) < R*.66 + 70*k);
+  if (near.length) return {text: 'Something is creeping closer. Tap the eyes!', target: (S.taught.eyes || 0) < 3 ? near[0] : null, urgent: true, meter: true};
+  const n = total(), mine = load() || {};
+  const unvisited = net.others.find(o => !(mine.visits || []).some(v => v.to === o.id && Date.now() - v.at < DAY));
+  if (unvisited && n >= 5){ const f = fires.find(x => x.id === unvisited.id); return {text: `Tap ${unvisited.name}\u2019s light on the hill to visit`, target: (S.taught.visit || 0) < 1 && f ? {x: f.x, y: f.y - 3*k} : null, meter: true}; }
+  if (jarsOf(n) < 4){ const fl = S.flies.find(f => f.age > .8 && f.age < f.max - 1); return {text: `Catch fireflies for a lantern: ${n % 25} / 25`, target: n < 3 ? fl : null, meter: true}; }
+  return {text: `${n} fireflies caught. Keep your fire warm.`, meter: true};
+}
+function drawGoal(R, t){
+  const g = goalNow(R), el = $('goal');
+  const key = g ? g.text + '|' + !!g.urgent : '';
+  if (key !== goalKey){ goalKey = key; $('goalText').textContent = g ? g.text : ''; el.classList.toggle('urgent', !!(g && g.urgent)); }
+  el.classList.toggle('on', !!g);
+  $('meterRow').hidden = !(g && g.meter);
+  const w = Math.round(S.fuel*100) + '%'; if ($('meterFill').style.width !== w) $('meterFill').style.width = w;
+  const tg = g && g.target; if (!tg) return;
+  const ph = (t % 1.3)/1.3;
+  ctx.strokeStyle = `rgba(255,255,255,${.85*(1 - ph)})`; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(tg.x, tg.y, (12 + 30*ph)*k, 0, 7); ctx.stroke();
+  ctx.fillStyle = `rgba(255,255,255,${.75 + .2*Math.sin(t*6)})`; ctx.beginPath(); ctx.arc(tg.x, tg.y, 6*k, 0, 7); ctx.fill();
+}
+
 /* ---------- input ---------- */
 function pt(e){ return {x:e.clientX, y:e.clientY}; }
 cv.addEventListener('pointerdown', e => {
@@ -790,14 +833,14 @@ cv.addEventListener('pointerdown', e => {
   if (!S.lit){ S.charging = true; S.chargeAt = S.t; return; }
   if (S.free){
     const eye = S.eyes.find(e => !e.flee && Math.hypot(e.x-p.x, e.y-p.y) < 40*k);
-    if (eye){ eye.flee = 1; rustle(eye.x < fire.x ? -1 : 1); pop(.8); return; }
+    if (eye){ S.taught.eyes = (S.taught.eyes || 0) + 1; eye.flee = 1; rustle(eye.x < fire.x ? -1 : 1); pop(.8); return; }
     const fly = S.flies.find(f => Math.hypot(f.x-p.x, f.y-p.y) < 36*k);
     if (fly){ catchFly(fly); return; }
   }
   let best = null, bd = 62*k;
   for (const s of S.sticks){ if (s.flying) continue; const dd = Math.hypot(s.x-p.x, s.y-p.y); if (dd < bd){ bd = dd; best = s; } }
   if (best){ best.sx0 = best.x; best.sy0 = best.y; best.downT = S.t; S.drag = best; best.gx = p.x - best.x; best.gy = p.y - best.y; try { cv.setPointerCapture(e.pointerId); } catch (err) {} cv.style.cursor = 'grabbing'; return; }
-  if (S.free && !S.visiting){ const f = fires.find(f => Math.hypot(f.x-p.x, f.y-p.y) < 34*k); if (f) visit(f); }
+  if (S.free && !S.visiting){ const f = fires.find(f => Math.hypot(f.x-p.x, f.y-p.y) < 44*k); if (f){ S.taught.visit = (S.taught.visit || 0) + 1; visit(f); } }
 });
 cv.addEventListener('pointermove', e => {
   const p = pt(e);
@@ -957,6 +1000,13 @@ function frame(now){
     }
     ctx.globalCompositeOperation = 'source-over';
     ctx.fillStyle = `rgb(255,${190 + 40*p + ch*25},${120 + 60*p + ch*60})`; ctx.beginPath(); ctx.arc(ex, ey, (3 + 1.2*p + ch*5)*k, 0, 7); ctx.fill();
+    if (t > 1 && !S.charging){
+      const a = Math.min(1, (t - 1)/.8)*(.8 + .2*Math.sin(t*2)), fz = Math.round(16*Math.min(1.25, k));
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = `600 ${fz}px Karla, system-ui, sans-serif`; ctx.fillStyle = `rgba(255,222,185,${a})`; ctx.fillText('Hold your finger on the ember', fire.x, fire.y + 92*k);
+      ctx.font = `400 ${fz - 2}px Karla, system-ui, sans-serif`; ctx.fillStyle = `rgba(205,185,165,${a*.85})`; ctx.fillText('then let go', fire.x, fire.y + 116*k);
+    }
+    if (S.charging){ const fz = Math.round(16*Math.min(1.25, k)); ctx.textAlign = 'center'; ctx.font = `600 ${fz}px Karla, system-ui, sans-serif`; ctx.fillStyle = 'rgba(255,230,190,.9)'; ctx.fillText('Now let go!', fire.x, fire.y + 92*k); }
     if (t > 3 && !S.charging){ const r = ((t - 3)%2.4)/2.4; ctx.strokeStyle = `rgba(255,170,80,${.35*(1 - r)})`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(fire.x, fire.y, (14 + 50*r)*k, 0, 7); ctx.stroke(); }
     requestAnimationFrame(frame); return;
   }
@@ -1050,11 +1100,11 @@ function frame(now){
   if (S.puff > 0){ ctx.fillStyle = `rgba(200,170,130,${S.puff*.25})`; ctx.beginPath(); ctx.arc(plantAt.x, plantAt.y-4*k, (30 - 20*S.puff)*k, 0, 7); ctx.fill(); }
   ctx.globalCompositeOperation = 'source-over';
 
-  updatePlay(dt, t, R); drawPlay(t); drawIntro(t, dt);
+  updatePlay(dt, t, R); drawPlay(t); drawGoal(R, t); drawIntro(t, dt);
 
   if (S.drag){ drawStick(S.drag, .35); const dd = Math.hypot(S.drag.x-fire.x, S.drag.y-fire.y); if (dd < 62*k){ ctx.strokeStyle = 'rgba(255,190,110,.5)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(fire.x, fire.y-8*k, 40*k, 0, 7); ctx.stroke(); } }
 
-  if (S.hint && t - S.hintAt > 3.5 && !S.drag && S.sticks.length){
+  if (false){
     const s = S.sticks.reduce((a,b) => Math.hypot(a.x-fire.x,a.y-fire.y) < Math.hypot(b.x-fire.x,b.y-fire.y) ? a : b);
     const ph = ((t - S.hintAt) % 2.2)/2.2, e = ph < .8 ? ph/.8 : 1, ease = e*e*(3-2*e);
     const gx = s.x + (fire.x - s.x)*ease, gy = s.y + (fire.y - 8*k - s.y)*ease;
