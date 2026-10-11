@@ -58,6 +58,10 @@ button:focus-visible,.ask input:focus-visible{outline:2px solid var(--ink);outli
 #snd.on{opacity:.7;pointer-events:auto}
 #hud{position:fixed;top:calc(15px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);font:600 12px var(--f-ui);letter-spacing:.1em;text-transform:uppercase;color:#d9f27a;opacity:0;transition:opacity .8s;pointer-events:none;text-shadow:0 0 10px rgba(200,255,120,.5),0 1px 4px #000;white-space:nowrap;font-variant-numeric:tabular-nums}
 #hud.on{opacity:.9}
+#aside{position:fixed;top:calc(100px + env(safe-area-inset-top,0px));left:16px;right:16px;max-width:460px;margin:0 auto;text-align:center;pointer-events:none;opacity:0;transform:translateY(-4px);transition:opacity .5s,transform .5s}
+#aside.on{opacity:1;transform:none}
+#aside .who{display:block;font:600 10px/1 var(--f-ui);letter-spacing:.2em;text-transform:uppercase;color:var(--ember);margin-bottom:6px;opacity:.85}
+#asideText{font:italic 400 clamp(17px,4.4vw,21px)/1.35 var(--f-voice);color:var(--ink);text-shadow:0 2px 12px #000,0 0 2px #000;text-wrap:balance}
 #ridgeHint{position:fixed;top:calc(46px + env(safe-area-inset-top,0px));left:16px;right:16px;text-align:center;font:400 12px var(--f-ui);letter-spacing:.08em;text-transform:uppercase;color:var(--dim);opacity:0;transition:opacity 1.2s;pointer-events:none;text-shadow:0 1px 6px #000}
 #ridgeHint.on{opacity:.8}
 #share{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));left:12px;opacity:.7}
@@ -70,6 +74,7 @@ button:focus-visible,.ask input:focus-visible{outline:2px solid var(--ink);outli
 <canvas id="c" aria-label="Ember: a small clearing at the edge of a forest. Tap to light the ember."></canvas>
 <div id="ridgeHint"></div>
 <div id="hud" aria-live="polite"></div>
+<div id="aside" aria-live="polite"><span class="who">Maren</span><span id="asideText"></span></div>
 <div id="talk" aria-live="polite"><span class="who" id="who">Maren</span><div id="talkText"></div></div>
 <div class="ask" id="whoAsk"></div>
 <form class="ask" id="nameAsk" autocomplete="off">
@@ -204,11 +209,19 @@ function liveMoment(id, before, after){
   else if (before.note !== after.note && after.note) momentQueue.push(`${after.name || 'Someone'} just left word by their fire.`);
   drainMoments();
 }
+let draining = false;
 async function drainMoments(){
-  if (!S.free || S.visiting || !momentQueue.length) return;
-  S.visiting = true; const t = token; foot.classList.remove('on');
-  try { while (momentQueue.length && t === token){ await say(momentQueue.shift(), 1800); } hush(); } catch (e) { return; }
-  if (t === token){ S.visiting = null; foot.classList.add('on'); }
+  if (draining || !momentQueue.length) return;
+  draining = true; const a = $('aside');
+  try {
+    while (momentQueue.length){
+      const line = momentQueue.shift();
+      $('asideText').textContent = line; a.classList.add('on');
+      for (let i=0;i<line.length;i+=2) if (/[a-zA-Z]/.test(line[i]) && i < 24) setTimeout(() => blip(line[i]), i*22);
+      await sleep(2600 + line.length*35); a.classList.remove('on'); await sleep(600);
+    }
+  } catch (e) { a.classList.remove('on'); }
+  draining = false;
 }
 $('share').onclick = async () => {
   const url = location.href.split('#')[0], b = $('share');
@@ -477,7 +490,7 @@ $('noteBtn').onclick = async () => {
 
 function restart(){
   token++; S = fresh(); hush();
-  foot.classList.remove('on'); $('ridgeHint').classList.remove('on');
+  foot.classList.remove('on'); $('ridgeHint').classList.remove('on'); $('aside').classList.remove('on'); momentQueue = [];
   ['whoAsk','nameAsk','seedAsk','textAsk','visitAsk'].forEach(id=>$(id).classList.remove('on'));
   $('again').textContent = 'Start over'; armed = false;
   run().catch(()=>{});
@@ -492,8 +505,18 @@ $('skipDay').onclick = () => { const s = load(); if (!s) return; s.plantedAt -= 
 
 /* ---------- sound: a soft crackle that follows the fire ---------- */
 let ac, noiseGain, muted = false;
+function unlockAudio(){
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}  // iPhone: play even with the silent switch on
+  if (!ac) return;
+  try {
+    if (ac.state !== 'running') ac.resume();
+    const b = ac.createBuffer(1, 1, 22050), s = ac.createBufferSource(); s.buffer = b; s.connect(ac.destination); s.start(0);
+  } catch (e) {}
+}
+['pointerup', 'touchend', 'click', 'keydown'].forEach(ev => addEventListener(ev, unlockAudio, {passive: true}));
 function startAudio(){
   try {
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
     ac = new (window.AudioContext || window.webkitAudioContext)();
     const len = ac.sampleRate*2, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
     let last = 0;
